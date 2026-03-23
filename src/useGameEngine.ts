@@ -9,6 +9,7 @@ import {
   SCROLL_SPEED,
   SURVIVAL_SCALE_INTERVAL, SURVIVAL_SCALE_FACTOR,
   GRAVITY, SHIP_THRUST, SHIP_VY_MAX, WAVE_SPEED,
+  DUAL_FLOOR_Y, DUAL_STRIP_H,
 } from './game/constants'
 import type { GameState, Star, Player } from './game/types'
 import {
@@ -73,7 +74,14 @@ function modeKey(mode: string, level: number): string {
 }
 
 // ── Initial state factory ─────────────────────────────────────────────────────
-function buildInitialState(mode: typeof GameMode[keyof typeof GameMode] = GameMode.CLASSIC, level = 1): GameState {
+// chunkFloorOverride: when set, obstacle y-values in procedural chunks are
+// proportionally scaled to fit a strip of this height instead of FLOOR_Y.
+// Used for DUAL mode lane 2 (SHIP strip).
+function buildInitialState(
+  mode: typeof GameMode[keyof typeof GameMode] = GameMode.CLASSIC,
+  level = 1,
+  chunkFloorOverride?: number,
+): GameState {
   const stars = buildStars()
   const best = getBestScore(modeKey(mode, level))
 
@@ -122,17 +130,21 @@ function buildInitialState(mode: typeof GameMode[keyof typeof GameMode] = GameMo
   // Survival / Daily — build initial chunks
   const rng = mode === GameMode.DAILY ? mulberry32(dailySeed()) : Math.random
   base.rng = rng
-  base.obstacles = buildInitialChunks(rng, 0, 0)
+  base.obstacles = buildInitialChunks(rng, 0, 0, chunkFloorOverride)
   base.nextChunkIndex = 3 // we pre-build 3 chunks
 
   return base
 }
 
 // ── Survival: build N initial chunks ─────────────────────────────────────────
+// floorOverride: if supplied, obstacle y-values are proportionally scaled from
+// the full FLOOR_Y (480) coordinate space down to the target strip height.
+// Used for DUAL mode lane 2 which runs in a 270px-tall strip.
 function buildInitialChunks(
   rng: () => number,
   startChunkIndex: number,
   difficultyLevel: number,
+  floorOverride?: number,
 ): import('./game/types').Obstacle[] {
   let obstacles: import('./game/types').Obstacle[] = []
   let lastId = ''
@@ -143,6 +155,13 @@ function buildInitialChunks(
     lastId = tmpl.id
     const raw = tmpl.obstacles(xOff, rng)
     const withDifficulty = injectDifficultyObstacles(raw, xOff, difficultyLevel, rng)
+    if (floorOverride !== undefined) {
+      const scale = floorOverride / FLOOR_Y
+      for (const obs of withDifficulty) {
+        obs.y = obs.y * scale
+        obs.h = obs.h * scale
+      }
+    }
     obstacles = obstacles.concat(withDifficulty)
   }
   return obstacles
@@ -254,9 +273,9 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       currentLevelRef.current = 1
       lastChunkIdRef.current = ''
       if (mode === GameMode.DUAL) {
-        stateRef2.current = buildInitialState(GameMode.DUAL, 1)
+        stateRef2.current = buildInitialState(GameMode.DUAL, 1, DUAL_STRIP_H)
         stateRef2.current.player.form = FormType.SHIP
-        stateRef2.current.player.y = FLOOR_Y - PLAYER_SIZE
+        stateRef2.current.player.y = DUAL_FLOOR_Y
         lastChunkIdRef2.current = ''
       } else {
         stateRef2.current = buildStartState()
@@ -319,8 +338,9 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
             stateRef.current = buildStartState()
           } else if (s.mode === GameMode.DUAL) {
             stateRef.current = buildInitialState(GameMode.DUAL, 1)
-            stateRef2.current = buildInitialState(GameMode.DUAL, 1)
+            stateRef2.current = buildInitialState(GameMode.DUAL, 1, DUAL_STRIP_H)
             stateRef2.current.player.form = FormType.SHIP
+            stateRef2.current.player.y = DUAL_FLOOR_Y
             lastChunkIdRef2.current = ''
           } else {
             stateRef.current = buildInitialState(GameMode.SURVIVAL, 1)
@@ -464,19 +484,21 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       }
 
       // Update physics per form (pass scrollSpeed for survival modes)
+      // In DUAL mode, lane 1 is always CUBE and uses the 270px strip bounds.
       const speed = s.scrollSpeed
+      const dualFloor = s.mode === GameMode.DUAL ? DUAL_FLOOR_Y : undefined
       switch (s.player.form) {
         case FormType.CUBE:
-          updateCubeWithSpeed(s.player, dt, speed)
+          updateCubeWithSpeed(s.player, dt, speed, dualFloor)
           break
         case FormType.SHIP:
-          updateShipWithSpeed(s.player, dt, holdingThrustRef.current, speed)
+          updateShipWithSpeed(s.player, dt, holdingThrustRef.current, speed, dualFloor)
           break
         case FormType.WAVE:
-          updateWaveWithSpeed(s.player, dt, speed)
+          updateWaveWithSpeed(s.player, dt, speed, dualFloor)
           break
         case FormType.BALL:
-          updateBallWithSpeed(s.player, dt, speed)
+          updateBallWithSpeed(s.player, dt, speed, dualFloor)
           break
       }
 
@@ -601,7 +623,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       s2.metres = calcMetres(s2.player.worldX)
 
       // SHIP form: no jump event needed, thrust is continuous
-      updateShipWithSpeed(s2.player, dt, holdingThrust, s2.scrollSpeed)
+      updateShipWithSpeed(s2.player, dt, holdingThrust, s2.scrollSpeed, DUAL_FLOOR_Y)
 
       updateObstacles(s2.obstacles, dt, s2.time)
 
@@ -738,12 +760,12 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
 // These mirror the original physics functions but accept a custom scrollSpeed.
 // The originals use the constant SCROLL_SPEED; survival needs scaling.
 
-function updateCubeWithSpeed(player: Player, dt: number, speed: number): void {
+function updateCubeWithSpeed(player: Player, dt: number, speed: number, floorY = FLOOR_Y - PLAYER_SIZE): void {
   player.vy += GRAVITY * dt
   player.y += player.vy * dt
   player.worldX += speed * dt
-  if (player.y >= FLOOR_Y - PLAYER_SIZE) {
-    player.y = FLOOR_Y - PLAYER_SIZE
+  if (player.y >= floorY) {
+    player.y = floorY
     player.vy = 0
     player.onGround = true
   } else {
@@ -757,7 +779,7 @@ function updateCubeWithSpeed(player: Player, dt: number, speed: number): void {
   }
 }
 
-function updateShipWithSpeed(player: Player, dt: number, holdingThrust: boolean, speed: number): void {
+function updateShipWithSpeed(player: Player, dt: number, holdingThrust: boolean, speed: number, floorY = FLOOR_Y - PLAYER_SIZE): void {
   if (holdingThrust) {
     player.vy -= SHIP_THRUST * dt
   } else {
@@ -768,21 +790,21 @@ function updateShipWithSpeed(player: Player, dt: number, holdingThrust: boolean,
   player.y += player.vy * dt
   player.worldX += speed * dt
   if (player.y < 0) { player.y = 0; player.vy = 0 }
-  if (player.y >= FLOOR_Y - PLAYER_SIZE) { player.y = FLOOR_Y - PLAYER_SIZE; player.vy = 0 }
+  if (player.y >= floorY) { player.y = floorY; player.vy = 0 }
 }
 
-function updateWaveWithSpeed(player: Player, dt: number, speed: number): void {
+function updateWaveWithSpeed(player: Player, dt: number, speed: number, floorY = FLOOR_Y - PLAYER_SIZE): void {
   player.vy = player.waveDir === 'UP' ? -WAVE_SPEED : WAVE_SPEED
   player.y += player.vy * dt
   player.worldX += speed * dt
   if (player.y < 0) { player.y = 0; player.waveDir = 'DOWN' }
-  if (player.y >= FLOOR_Y - PLAYER_SIZE) { player.y = FLOOR_Y - PLAYER_SIZE; player.waveDir = 'UP' }
+  if (player.y >= floorY) { player.y = floorY; player.waveDir = 'UP' }
 }
 
-function updateBallWithSpeed(player: Player, dt: number, speed: number): void {
+function updateBallWithSpeed(player: Player, dt: number, speed: number, floorY = FLOOR_Y - PLAYER_SIZE): void {
   player.vy += GRAVITY * player.gravSign * dt
   player.y += player.vy * dt
   player.worldX += speed * dt
   if (player.y < 0) { player.y = 0; player.vy = 0 }
-  if (player.y >= FLOOR_Y - PLAYER_SIZE) { player.y = FLOOR_Y - PLAYER_SIZE; player.vy = 0 }
+  if (player.y >= floorY) { player.y = floorY; player.vy = 0 }
 }

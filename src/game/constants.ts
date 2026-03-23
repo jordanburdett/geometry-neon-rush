@@ -3,6 +3,10 @@ export const CANVAS_W = 960
 export const CANVAS_H = 540
 export const FLOOR_Y = 480 // bottom of play area, 60px HUD below
 
+// DUAL mode: each lane occupies a 270px-tall horizontal strip
+export const DUAL_STRIP_H = 270   // height of each strip in dual mode
+export const DUAL_FLOOR_Y = 230   // DUAL_STRIP_H - PLAYER_SIZE (270 - 40)
+
 // Physics
 export const GRAVITY = 2000 // px/s²
 export const JUMP_VY = -700 // px/s (negative = up)
