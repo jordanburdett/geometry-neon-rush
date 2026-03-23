@@ -41,6 +41,16 @@ import {
   pickChunk, injectDifficultyObstacles, chunkStartX,
 } from './game/survivalChunks'
 
+// ── Ghost data safe parser ────────────────────────────────────────────────────
+function parseGhostData(raw: string | null): Array<{worldX: number, form: FormType}> | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as Array<{worldX: number, form: FormType}>
+  } catch {
+    return null
+  }
+}
+
 // ── Level builder map ─────────────────────────────────────────────────────────
 function buildLevel(level: number) {
   switch (level) {
@@ -284,7 +294,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       ghostLastSampleTimeRef.current = 0
       // Load stored ghost for Classic level playback
       const raw = lsGet(`gnr-ghost-classic-l${level}`)
-      ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+      ghostPlaybackRef.current = parseGhostData(raw)
       ghostCursorIdxRef.current = 0
       ghostDeltaRef.current = 0
       ghostOvertakeFlashRef.current = 0
@@ -302,10 +312,10 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       // Load stored ghost for playback
       if (mode === GameMode.SURVIVAL) {
         const raw = lsGet('gnr-ghost-survival')
-        ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+        ghostPlaybackRef.current = parseGhostData(raw)
       } else if (mode === GameMode.CLASSIC) {
         const raw = lsGet('gnr-ghost-classic-l1')
-        ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+        ghostPlaybackRef.current = parseGhostData(raw)
       } else {
         ghostPlaybackRef.current = null
       }
@@ -394,10 +404,10 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
           // Reload ghost for playback on retry
           if (s.mode === GameMode.SURVIVAL) {
             const raw = lsGet('gnr-ghost-survival')
-            ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+            ghostPlaybackRef.current = parseGhostData(raw)
           } else if (s.mode === GameMode.CLASSIC) {
             const raw = lsGet(`gnr-ghost-classic-l${s.currentLevel}`)
-            ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+            ghostPlaybackRef.current = parseGhostData(raw)
           } else {
             ghostPlaybackRef.current = null
           }
@@ -431,7 +441,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
           ghostLastSampleTimeRef.current = 0
           // Load ghost for next level
           const raw = lsGet(`gnr-ghost-classic-l${nextLevel}`)
-          ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+          ghostPlaybackRef.current = parseGhostData(raw)
           ghostCursorIdxRef.current = 0
           ghostDeltaRef.current = 0
           ghostOvertakeFlashRef.current = 0
@@ -992,17 +1002,19 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       renderPlayer(ctx, s)
       // Ghost playback: render after live player so ghost appears on top
       const ghostPlayback = ghostPlaybackRef.current
-      if (ghostPlayback && ghostPlayback.length > 0 && s.phase === 'PLAYING') {
+      if (ghostPlayback && ghostPlayback.length > 0 && s.phase === GamePhase.PLAYING) {
         const sample = ghostPlayback[ghostCursorIdxRef.current]
         if (sample) {
           renderGhostPlayer(ctx, { worldX: sample.worldX, form: sample.form as FormType }, s.cameraX, s.player.y)
         }
       }
       renderParticles(ctx, s.particles)
-      // Pass ghost delta to HUD when ghost is loaded; null otherwise (DUAL/DAILY have no ghost)
-      const ghostDeltaOpts = ghostPlaybackRef.current && ghostPlaybackRef.current.length > 0
-        ? { delta: ghostDeltaRef.current, flashActive: ghostOvertakeFlashRef.current > 0, time: s.time }
-        : null
+      // Pass ghost delta to HUD only during active play (not over overlays) when ghost is loaded
+      const ghostDeltaOpts = (s.phase === GamePhase.PLAYING && ghostPlaybackRef.current !== null) ? {
+        delta: ghostDeltaRef.current,
+        flashActive: ghostOvertakeFlashRef.current > 0,
+        time: s.time
+      } : null
       renderHUD(ctx, s, ghostDeltaOpts)
 
       if (s.phase === GamePhase.DEAD) {
