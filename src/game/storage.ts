@@ -54,3 +54,47 @@ export function saveBestScore(modeKey: string, score: number): void {
     lsSet(`gnr-best-${modeKey}`, String(score))
   }
 }
+
+// ── Ghost replay storage ──────────────────────────────────────────────────────
+
+export interface GhostSample {
+  worldX: number
+  form: string // FormType value stored as string
+}
+
+/** Returns the stored best completion time for a Classic level ghost, or null if none. */
+export function getGhostClassicBestTime(levelIndex: number): number | null {
+  const raw = lsGet(`gnr-ghost-classic-time-l${levelIndex}`)
+  if (raw === null) return null
+  const n = parseFloat(raw)
+  return isNaN(n) ? null : n
+}
+
+/**
+ * Saves ghost samples for Survival if the current metres beats the stored best.
+ * Returns true if saved, false if not a new best.
+ */
+export function saveGhostSurvivalIfBest(metres: number, samples: GhostSample[]): boolean {
+  const bestRaw = lsGet('gnr-ghost-survival-best')
+  const best = bestRaw !== null ? parseInt(bestRaw, 10) : 0
+  if (metres > best) {
+    lsSet('gnr-ghost-survival-best', String(metres))
+    lsSet('gnr-ghost-survival', JSON.stringify(samples))
+    return true
+  }
+  return false
+}
+
+/**
+ * Saves ghost samples for a Classic level if it's the first completion or beats the stored time.
+ * Returns true if saved.
+ */
+export function saveGhostClassicIfBest(levelIndex: number, time: number, samples: GhostSample[]): boolean {
+  const best = getGhostClassicBestTime(levelIndex)
+  if (best === null || time < best) {
+    lsSet(`gnr-ghost-classic-time-l${levelIndex}`, String(time))
+    lsSet(`gnr-ghost-classic-l${levelIndex}`, JSON.stringify(samples))
+    return true
+  }
+  return false
+}

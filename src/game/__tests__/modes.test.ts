@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mulberry32, dailySeed } from '../prng'
-import { lsGet, lsSet } from '../storage'
+import { lsGet, lsSet, saveGhostSurvivalIfBest, saveGhostClassicIfBest, getGhostClassicBestTime } from '../storage'
+import type { GhostSample } from '../storage'
 import { SCROLL_SPEED, SURVIVAL_SCALE_FACTOR, SURVIVAL_SCALE_INTERVAL } from '../constants'
 import { chunkStartX, CHUNK_TEMPLATES } from '../survivalChunks'
 
@@ -200,5 +201,116 @@ describe('chunk assembly', () => {
     for (let i = 0; i < obs0.length; i++) {
       expect(obs960[i].worldX - obs0[i].worldX).toBe(960)
     }
+  })
+})
+
+// ── Ghost replay storage ──────────────────────────────────────────────────────
+
+describe('saveGhostSurvivalIfBest', () => {
+  beforeEach(() => { localStorage.clear() })
+  afterEach(() => { localStorage.clear() })
+
+  const samples: GhostSample[] = [
+    { worldX: 100, form: 'CUBE' },
+    { worldX: 200, form: 'SHIP' },
+    { worldX: 300, form: 'CUBE' },
+  ]
+
+  it('saves on first run (no stored ghost)', () => {
+    const saved = saveGhostSurvivalIfBest(50, samples)
+    expect(saved).toBe(true)
+    const raw = lsGet('gnr-ghost-survival')
+    expect(raw).not.toBeNull()
+    const parsed = JSON.parse(raw!) as GhostSample[]
+    expect(parsed).toEqual(samples)
+  })
+
+  it('returns true and overwrites when new metres beats stored best', () => {
+    saveGhostSurvivalIfBest(50, samples)
+    const betterSamples: GhostSample[] = [{ worldX: 500, form: 'WAVE' }]
+    const saved = saveGhostSurvivalIfBest(100, betterSamples)
+    expect(saved).toBe(true)
+    const raw = lsGet('gnr-ghost-survival')
+    const parsed = JSON.parse(raw!) as GhostSample[]
+    expect(parsed).toEqual(betterSamples)
+  })
+
+  it('returns false and does not overwrite when new metres does not beat stored best', () => {
+    saveGhostSurvivalIfBest(100, samples)
+    const worseSamples: GhostSample[] = [{ worldX: 50, form: 'BALL' }]
+    const saved = saveGhostSurvivalIfBest(50, worseSamples)
+    expect(saved).toBe(false)
+    // Original samples should still be stored
+    const raw = lsGet('gnr-ghost-survival')
+    const parsed = JSON.parse(raw!) as GhostSample[]
+    expect(parsed).toEqual(samples)
+  })
+
+  it('saves JSON array of {worldX, form} objects', () => {
+    saveGhostSurvivalIfBest(10, samples)
+    const raw = lsGet('gnr-ghost-survival')
+    expect(raw).not.toBeNull()
+    const parsed = JSON.parse(raw!) as GhostSample[]
+    expect(Array.isArray(parsed)).toBe(true)
+    expect(parsed[0]).toHaveProperty('worldX')
+    expect(parsed[0]).toHaveProperty('form')
+  })
+})
+
+describe('saveGhostClassicIfBest', () => {
+  beforeEach(() => { localStorage.clear() })
+  afterEach(() => { localStorage.clear() })
+
+  const samples: GhostSample[] = [
+    { worldX: 0, form: 'CUBE' },
+    { worldX: 4000, form: 'CUBE' },
+    { worldX: 8000, form: 'CUBE' },
+  ]
+
+  it('saves on first completion (no stored ghost)', () => {
+    const saved = saveGhostClassicIfBest(1, 45.2, samples)
+    expect(saved).toBe(true)
+    const raw = lsGet('gnr-ghost-classic-l1')
+    expect(raw).not.toBeNull()
+    const parsed = JSON.parse(raw!) as GhostSample[]
+    expect(parsed).toEqual(samples)
+  })
+
+  it('stores the completion time for future comparisons', () => {
+    saveGhostClassicIfBest(1, 45.2, samples)
+    expect(getGhostClassicBestTime(1)).toBeCloseTo(45.2, 5)
+  })
+
+  it('returns true and overwrites when new time is faster', () => {
+    saveGhostClassicIfBest(1, 45.2, samples)
+    const fasterSamples: GhostSample[] = [{ worldX: 8000, form: 'SHIP' }]
+    const saved = saveGhostClassicIfBest(1, 40.0, fasterSamples)
+    expect(saved).toBe(true)
+    const raw = lsGet('gnr-ghost-classic-l1')
+    const parsed = JSON.parse(raw!) as GhostSample[]
+    expect(parsed).toEqual(fasterSamples)
+  })
+
+  it('returns false and does not overwrite when new time is slower', () => {
+    saveGhostClassicIfBest(1, 40.0, samples)
+    const slowerSamples: GhostSample[] = [{ worldX: 0, form: 'BALL' }]
+    const saved = saveGhostClassicIfBest(1, 50.0, slowerSamples)
+    expect(saved).toBe(false)
+    const raw = lsGet('gnr-ghost-classic-l1')
+    const parsed = JSON.parse(raw!) as GhostSample[]
+    expect(parsed).toEqual(samples)
+  })
+
+  it('uses separate keys for different levels', () => {
+    saveGhostClassicIfBest(1, 45.0, samples)
+    saveGhostClassicIfBest(2, 60.0, [{ worldX: 500, form: 'WAVE' }])
+    expect(lsGet('gnr-ghost-classic-l1')).not.toBeNull()
+    expect(lsGet('gnr-ghost-classic-l2')).not.toBeNull()
+    expect(getGhostClassicBestTime(1)).toBeCloseTo(45.0, 5)
+    expect(getGhostClassicBestTime(2)).toBeCloseTo(60.0, 5)
+  })
+
+  it('getGhostClassicBestTime returns null when no ghost stored', () => {
+    expect(getGhostClassicBestTime(3)).toBeNull()
   })
 })

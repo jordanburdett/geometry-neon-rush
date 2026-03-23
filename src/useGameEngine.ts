@@ -32,7 +32,9 @@ import { buildLevel5 } from './game/level5'
 import { mulberry32, dailySeed } from './game/prng'
 import {
   isDailyDone, markDailyDone, getBestScore, saveBestScore,
+  saveGhostSurvivalIfBest, saveGhostClassicIfBest,
 } from './game/storage'
+import type { GhostSample } from './game/storage'
 import {
   pickChunk, injectDifficultyObstacles, chunkStartX,
 } from './game/survivalChunks'
@@ -244,6 +246,9 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
   const lastChunkIdRef2 = useRef('')
   // DUAL death flash timer (0 = no flash, 0.4 = full flash)
   const dualDeathFlashRef = useRef(0)
+  // Ghost recording — Survival and Classic only
+  const ghostSamplesRef = useRef<GhostSample[]>([])
+  const ghostLastSampleTimeRef = useRef<number>(0)
 
   const handleJumpStart = useCallback(() => {
     jumpPressedRef.current = true
@@ -266,6 +271,8 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
     function loadLevel(level: number): void {
       currentLevelRef.current = level
       stateRef.current = buildInitialState(GameMode.CLASSIC, level)
+      ghostSamplesRef.current = []
+      ghostLastSampleTimeRef.current = 0
     }
 
     // ── Start a mode ──────────────────────────────────────────────────────
@@ -274,6 +281,8 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       stateRef.current = buildInitialState(mode, 1, mode === GameMode.DUAL ? DUAL_STRIP_H : undefined)
       currentLevelRef.current = 1
       lastChunkIdRef.current = ''
+      ghostSamplesRef.current = []
+      ghostLastSampleTimeRef.current = 0
       if (mode === GameMode.DUAL) {
         stateRef2.current = buildInitialState(GameMode.DUAL, 1, DUAL_STRIP_H)
         stateRef2.current.player.form = FormType.SHIP
@@ -350,6 +359,8 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
             stateRef.current = buildInitialState(GameMode.SURVIVAL, 1)
           }
           lastChunkIdRef.current = ''
+          ghostSamplesRef.current = []
+          ghostLastSampleTimeRef.current = 0
           return
         }
         // Daily solo Menu button: (410, 360, 140, 44) — renderer centers it when Daily
@@ -372,6 +383,8 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
           const nextLevel = s.currentLevel < 5 ? s.currentLevel + 1 : 1
           stateRef.current = buildInitialState(GameMode.CLASSIC, nextLevel)
           currentLevelRef.current = nextLevel
+          ghostSamplesRef.current = []
+          ghostLastSampleTimeRef.current = 0
           return
         }
         // Menu button: (360, 394, 200, 44)
@@ -539,6 +552,16 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
 
       updateParticles(s.particles, dt)
 
+      // ── Ghost recording (Survival + Classic only, ~10Hz) ──────────────────
+      if (s.mode !== GameMode.DAILY && s.mode !== GameMode.DUAL) {
+        const sampleClock = s.mode === GameMode.CLASSIC ? s.time : s.runTime
+        if (sampleClock - ghostLastSampleTimeRef.current >= 0.1) {
+          ghostLastSampleTimeRef.current = sampleClock
+          ghostSamplesRef.current.push({ worldX: s.player.worldX, form: s.player.form })
+          if (ghostSamplesRef.current.length > 600) ghostSamplesRef.current.shift()
+        }
+      }
+
       // ── Survival: advance chunks ─────────────────────────────────────────
       if (s.mode !== GameMode.CLASSIC) {
         advanceSurvivalChunks(s)
@@ -565,6 +588,8 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         // Save best score (for Classic, score = percent * 100 effectively level completion)
         const score = s.currentLevel
         saveBestScore(modeKey(s.mode, s.currentLevel), score)
+        // Ghost: save Classic run if it's the first completion or a new best time
+        saveGhostClassicIfBest(s.currentLevel, s.time, ghostSamplesRef.current)
         return
       }
 
@@ -587,6 +612,11 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         // Daily: mark as done on first death
         if (s.mode === GameMode.DAILY) {
           markDailyDone(s.metres)
+        }
+
+        // Ghost: save Survival run if it's a new best
+        if (s.mode === GameMode.SURVIVAL) {
+          saveGhostSurvivalIfBest(s.metres, ghostSamplesRef.current)
         }
       } else if (collisionResult === 'checkpoint') {
         s.checkpointReached = true
