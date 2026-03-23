@@ -8,6 +8,8 @@ import {
   GRID_LINE_SPACING,
   PULSE_HZ,
   ObstacleKind,
+  FormType,
+  FORM_COLOR,
 } from './constants'
 import type { GameState, Obstacle, Particle } from './types'
 
@@ -107,6 +109,14 @@ export function renderObstacles(
       case ObstacleKind.PLATFORM:
         renderPlatform(ctx, sx, obs.y, obs.w, obs.h)
         break
+      case ObstacleKind.LASER:
+        renderLaser(ctx, sx, obs.y, obs.w, obs.h, obs.laserOn ?? true)
+        break
+      case ObstacleKind.PORTAL:
+        if (obs.targetForm !== undefined) {
+          renderPortal(ctx, sx, obs.y, obs.w, obs.h, obs.targetForm, time)
+        }
+        break
     }
   }
 }
@@ -115,20 +125,29 @@ function renderSpike(
   ctx: CanvasRenderingContext2D,
   x: number, y: number, w: number, h: number,
 ): void {
+  // Detect ceiling spike (y == 0) — flip triangle
+  const isCeiling = y === 0
+
   ctx.save()
   ctx.fillStyle = '#ff2266'
   ctx.shadowColor = '#ff0044'
   ctx.shadowBlur = 8
 
-  // Triangle pointing up
   ctx.beginPath()
-  ctx.moveTo(x + w / 2, y)          // tip
-  ctx.lineTo(x + w, y + h)          // bottom right
-  ctx.lineTo(x, y + h)              // bottom left
+  if (isCeiling) {
+    // Tip points down
+    ctx.moveTo(x + w / 2, y + h)    // tip
+    ctx.lineTo(x + w, y)             // top right
+    ctx.lineTo(x, y)                 // top left
+  } else {
+    // Tip points up
+    ctx.moveTo(x + w / 2, y)        // tip
+    ctx.lineTo(x + w, y + h)        // bottom right
+    ctx.lineTo(x, y + h)            // bottom left
+  }
   ctx.closePath()
   ctx.fill()
 
-  // Highlight edge
   ctx.strokeStyle = '#ff88aa'
   ctx.lineWidth = 1
   ctx.stroke()
@@ -147,17 +166,14 @@ function renderSaw(
   ctx.translate(cx, cy)
   ctx.rotate(angle)
 
-  // Outer glow
   ctx.shadowColor = '#ff6600'
   ctx.shadowBlur = 10
 
-  // Disc
   ctx.beginPath()
   ctx.arc(0, 0, r, 0, Math.PI * 2)
   ctx.fillStyle = '#cc3300'
   ctx.fill()
 
-  // Teeth
   ctx.strokeStyle = '#ff9900'
   ctx.lineWidth = 2
   for (let i = 0; i < spokes; i++) {
@@ -168,7 +184,6 @@ function renderSaw(
     ctx.stroke()
   }
 
-  // Inner circle
   ctx.beginPath()
   ctx.arc(0, 0, r * 0.3, 0, Math.PI * 2)
   ctx.fillStyle = '#ff6600'
@@ -187,14 +202,81 @@ function renderPlatform(
   ctx.shadowColor = '#4466ff'
   ctx.shadowBlur = 6
 
-  // Platform body
   ctx.fillRect(x, y, w, h)
 
-  // Top highlight
   ctx.fillStyle = '#6688ff'
   ctx.fillRect(x, y, w, 3)
 
   ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+function renderLaser(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number,
+  on: boolean,
+): void {
+  if (!on) {
+    // Dim off state — faint hint so player can see it's a laser
+    ctx.save()
+    ctx.globalAlpha = 0.2
+    ctx.fillStyle = '#ff0000'
+    ctx.fillRect(x, y, w, h)
+    ctx.globalAlpha = 1
+    ctx.restore()
+    return
+  }
+
+  ctx.save()
+  ctx.shadowColor = '#ff0000'
+  ctx.shadowBlur = 20
+
+  // Bright red core
+  ctx.fillStyle = '#ff0000'
+  ctx.fillRect(x, y, w, h)
+
+  // Inner white-hot core
+  ctx.fillStyle = '#ffaaaa'
+  ctx.fillRect(x + w * 0.25, y, w * 0.5, h)
+
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+function renderPortal(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number,
+  targetForm: string,
+  time: number,
+): void {
+  const color = FORM_COLOR[targetForm as keyof typeof FORM_COLOR] ?? '#ffffff'
+  const pulse = Math.sin(time * 5) * 0.5 + 0.5
+
+  ctx.save()
+  ctx.shadowColor = color
+  ctx.shadowBlur = 12 + pulse * 16
+
+  // Portal body
+  ctx.globalAlpha = 0.3 + pulse * 0.2
+  ctx.fillStyle = color
+  ctx.fillRect(x, y, w, h)
+
+  // Portal border
+  ctx.globalAlpha = 0.8 + pulse * 0.2
+  ctx.strokeStyle = color
+  ctx.lineWidth = 3
+  ctx.strokeRect(x, y, w, h)
+
+  // Form label inside portal
+  ctx.globalAlpha = 0.9
+  ctx.fillStyle = color
+  ctx.font = 'bold 11px monospace'
+  ctx.textAlign = 'center'
+  ctx.shadowBlur = 6
+  ctx.fillText(targetForm[0] ?? '', x + w / 2, y + h / 2 + 4)
+
+  ctx.shadowBlur = 0
+  ctx.globalAlpha = 1
   ctx.restore()
 }
 
@@ -209,7 +291,6 @@ function renderCheckpoint(
   const pulse = Math.sin(time * 4) * 0.5 + 0.5
   const color = reached ? '#00ff88' : `rgba(255, 220, 0, ${0.7 + pulse * 0.3})`
 
-  // Pole
   ctx.strokeStyle = color
   ctx.lineWidth = 3
   ctx.shadowColor = color
@@ -219,7 +300,6 @@ function renderCheckpoint(
   ctx.lineTo(x, y + h)
   ctx.stroke()
 
-  // Flag
   ctx.fillStyle = color
   ctx.beginPath()
   ctx.moveTo(x, y)
@@ -232,7 +312,7 @@ function renderCheckpoint(
   ctx.restore()
 }
 
-// ── Player (CUBE) ─────────────────────────────────────────────────────────────
+// ── Player ─────────────────────────────────────────────────────────────────────
 export function renderPlayer(ctx: CanvasRenderingContext2D, state: GameState): void {
   if (state.phase !== 'PLAYING') return
 
@@ -240,31 +320,45 @@ export function renderPlayer(ctx: CanvasRenderingContext2D, state: GameState): v
   const sx = PLAYER_SCREEN_X
 
   // Trail
-  renderTrail(ctx, player.trail)
+  renderTrail(ctx, player.trail, player.form)
 
-  // Cube
+  switch (player.form) {
+    case FormType.CUBE:
+      renderCube(ctx, sx, player.y, player.rotation)
+      break
+    case FormType.SHIP:
+      renderShip(ctx, sx, player.y)
+      break
+    case FormType.WAVE:
+      renderWave(ctx, sx, player.y, state.time)
+      break
+    case FormType.BALL:
+      renderBall(ctx, sx, player.y, player.gravSign, state.time)
+      break
+  }
+}
+
+function renderCube(
+  ctx: CanvasRenderingContext2D,
+  sx: number, y: number, rotation: number,
+): void {
   ctx.save()
-  ctx.translate(sx + PLAYER_SIZE / 2, player.y + PLAYER_SIZE / 2)
-  ctx.rotate(player.rotation)
+  ctx.translate(sx + PLAYER_SIZE / 2, y + PLAYER_SIZE / 2)
+  ctx.rotate(rotation)
 
-  // Outer glow
   ctx.shadowColor = '#00ffff'
   ctx.shadowBlur = 16
 
-  // Fill
   ctx.fillStyle = '#00ddff'
   ctx.fillRect(-PLAYER_SIZE / 2, -PLAYER_SIZE / 2, PLAYER_SIZE, PLAYER_SIZE)
 
-  // Inner highlight (top-left corner)
   ctx.fillStyle = 'rgba(255,255,255,0.3)'
   ctx.fillRect(-PLAYER_SIZE / 2, -PLAYER_SIZE / 2, PLAYER_SIZE * 0.5, PLAYER_SIZE * 0.5)
 
-  // Border
   ctx.strokeStyle = '#88ffff'
   ctx.lineWidth = 2
   ctx.strokeRect(-PLAYER_SIZE / 2, -PLAYER_SIZE / 2, PLAYER_SIZE, PLAYER_SIZE)
 
-  // Diagonal stripes
   ctx.strokeStyle = 'rgba(0, 80, 100, 0.5)'
   ctx.lineWidth = 1
   for (let i = -PLAYER_SIZE; i < PLAYER_SIZE * 2; i += 10) {
@@ -278,16 +372,123 @@ export function renderPlayer(ctx: CanvasRenderingContext2D, state: GameState): v
   ctx.restore()
 }
 
+function renderShip(
+  ctx: CanvasRenderingContext2D,
+  sx: number, y: number,
+): void {
+  ctx.save()
+  ctx.translate(sx + PLAYER_SIZE / 2, y + PLAYER_SIZE / 2)
+
+  ctx.shadowColor = '#ff2d78'
+  ctx.shadowBlur = 18
+
+  // Arrow / wedge shape pointing right
+  ctx.fillStyle = '#ff2d78'
+  ctx.beginPath()
+  ctx.moveTo(PLAYER_SIZE / 2, 0)           // nose right
+  ctx.lineTo(-PLAYER_SIZE / 2, -PLAYER_SIZE / 2 + 4) // top-left wing
+  ctx.lineTo(-PLAYER_SIZE / 4, 0)          // tail indent
+  ctx.lineTo(-PLAYER_SIZE / 2, PLAYER_SIZE / 2 - 4)  // bottom-left wing
+  ctx.closePath()
+  ctx.fill()
+
+  // Highlight
+  ctx.fillStyle = 'rgba(255,160,200,0.4)'
+  ctx.beginPath()
+  ctx.moveTo(PLAYER_SIZE / 2, 0)
+  ctx.lineTo(-PLAYER_SIZE / 4, -PLAYER_SIZE / 2 + 4)
+  ctx.lineTo(-PLAYER_SIZE / 4, 0)
+  ctx.closePath()
+  ctx.fill()
+
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+function renderWave(
+  ctx: CanvasRenderingContext2D,
+  sx: number, y: number, time: number,
+): void {
+  ctx.save()
+  ctx.translate(sx + PLAYER_SIZE / 2, y + PLAYER_SIZE / 2)
+
+  const wobble = Math.sin(time * 12) * 3
+
+  ctx.shadowColor = '#ffd700'
+  ctx.shadowBlur = 16
+
+  // Diamond / rhombus shape for WAVE
+  ctx.fillStyle = '#ffd700'
+  ctx.beginPath()
+  ctx.moveTo(PLAYER_SIZE / 2, wobble)             // right
+  ctx.lineTo(0, -PLAYER_SIZE / 2 + wobble)        // top
+  ctx.lineTo(-PLAYER_SIZE / 2, wobble)            // left
+  ctx.lineTo(0, PLAYER_SIZE / 2 + wobble)         // bottom
+  ctx.closePath()
+  ctx.fill()
+
+  // Inner shine
+  ctx.fillStyle = 'rgba(255,255,180,0.4)'
+  ctx.beginPath()
+  ctx.moveTo(PLAYER_SIZE / 4, wobble)
+  ctx.lineTo(0, -PLAYER_SIZE / 4 + wobble)
+  ctx.lineTo(-PLAYER_SIZE / 4, wobble)
+  ctx.lineTo(0, PLAYER_SIZE / 4 + wobble)
+  ctx.closePath()
+  ctx.fill()
+
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
+function renderBall(
+  ctx: CanvasRenderingContext2D,
+  sx: number, y: number, gravSign: number, time: number,
+): void {
+  ctx.save()
+  ctx.translate(sx + PLAYER_SIZE / 2, y + PLAYER_SIZE / 2)
+
+  const spin = time * (gravSign === 1 ? 3 : -3)
+
+  ctx.shadowColor = '#39ff14'
+  ctx.shadowBlur = 18
+
+  // Circle
+  ctx.fillStyle = '#39ff14'
+  ctx.beginPath()
+  ctx.arc(0, 0, PLAYER_SIZE / 2, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Spin line to show direction
+  ctx.strokeStyle = '#003300'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(0, 0)
+  ctx.lineTo(Math.cos(spin) * PLAYER_SIZE * 0.35, Math.sin(spin) * PLAYER_SIZE * 0.35)
+  ctx.stroke()
+
+  // Shine
+  ctx.fillStyle = 'rgba(200,255,180,0.4)'
+  ctx.beginPath()
+  ctx.arc(-PLAYER_SIZE * 0.15, -PLAYER_SIZE * 0.15, PLAYER_SIZE * 0.18, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.shadowBlur = 0
+  ctx.restore()
+}
+
 function renderTrail(
   ctx: CanvasRenderingContext2D,
   trail: Array<{ x: number; y: number }>,
+  form: string,
 ): void {
+  const color = FORM_COLOR[form as keyof typeof FORM_COLOR] ?? '#00ffff'
   for (let i = 0; i < trail.length; i++) {
     const t = trail[i]
     const alpha = (1 - i / trail.length) * 0.5
-    const size = PLAYER_SIZE * (1 - i / trail.length * 0.4)
+    const size = PLAYER_SIZE * (1 - (i / trail.length) * 0.4)
     ctx.globalAlpha = alpha
-    ctx.fillStyle = '#00ffff'
+    ctx.fillStyle = color
     ctx.fillRect(t.x, t.y, size, size)
   }
   ctx.globalAlpha = 1
@@ -316,7 +517,7 @@ export function renderHUD(ctx: CanvasRenderingContext2D, state: GameState): void
 
   const hudY = FLOOR_Y + 8
   const barX = 20
-  const barW = CANVAS_W - 180
+  const barW = CANVAS_W - 220
   const barH = 12
 
   // Progress bar background
@@ -348,24 +549,38 @@ export function renderHUD(ctx: CanvasRenderingContext2D, state: GameState): void
   ctx.textAlign = 'right'
   ctx.fillText(`attempt ${state.attempts}`, CANVAS_W - 20, hudY + 20)
 
+  // Current form indicator
+  const formColor = FORM_COLOR[state.player.form]
+  ctx.fillStyle = formColor
+  ctx.font = 'bold 12px monospace'
+  ctx.textAlign = 'right'
+  ctx.shadowColor = formColor
+  ctx.shadowBlur = 6
+  ctx.fillText(state.player.form, CANVAS_W - 20, hudY + 6)
+  ctx.shadowBlur = 0
+
+  // Level indicator
+  ctx.fillStyle = 'rgba(255,255,255,0.4)'
+  ctx.font = '11px monospace'
+  ctx.textAlign = 'left'
+  ctx.fillText(`LVL ${state.currentLevel}`, barX, hudY + 21)
+
   // Checkpoint indicator
   if (state.checkpointReached) {
     ctx.fillStyle = '#00ff88'
-    ctx.textAlign = 'right'
+    ctx.textAlign = 'center'
     ctx.font = 'bold 12px monospace'
-    ctx.fillText('✓ checkpoint', CANVAS_W - 20, hudY + 6)
+    ctx.fillText('✓ checkpoint', CANVAS_W / 2, hudY + 6)
   }
 }
 
 // ── Level Complete Overlay ────────────────────────────────────────────────────
 export function renderLevelComplete(ctx: CanvasRenderingContext2D, time: number): void {
-  // Dim background
   ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
 
   const pulse = Math.sin(time * 3) * 0.5 + 0.5
 
-  // Main text
   ctx.save()
   ctx.textAlign = 'center'
   ctx.shadowColor = '#00ffff'
@@ -377,7 +592,7 @@ export function renderLevelComplete(ctx: CanvasRenderingContext2D, time: number)
   ctx.shadowBlur = 10
   ctx.font = '28px monospace'
   ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
-  ctx.fillText('You crushed it!', CANVAS_W / 2, CANVAS_H / 2 + 30)
+  ctx.fillText('Press Space or tap to continue', CANVAS_W / 2, CANVAS_H / 2 + 30)
 
   ctx.shadowBlur = 0
   ctx.restore()
