@@ -8,6 +8,10 @@ export interface Player {
   onGround: boolean
   form: FormType
   rotation: number // radians, for cube spin
+  // BALL form: gravity sign (+1 normal, -1 inverted)
+  gravSign: number
+  // WAVE form: current direction
+  waveDir: 'UP' | 'DOWN'
   // Trail positions (screen x, y)
   trail: Array<{ x: number; y: number }>
 }
@@ -23,6 +27,13 @@ export interface Obstacle {
   // For checkpoints
   isCheckpoint?: boolean
   reached?: boolean
+  // For portals: which form to switch to
+  targetForm?: FormType
+  // For moving platforms/obstacles: sinusoidal horizontal motion
+  moving?: { amplitude: number; freq: number; baseX: number }
+  // For laser flicker tracking
+  laserOn?: boolean
+  laserTimer?: number
 }
 
 export interface Particle {
@@ -65,4 +76,8 @@ export interface GameState {
   respawnTimer: number
   // Attempt count
   attempts: number
+  // Current level (1-5)
+  currentLevel: number
+  // Portal re-trigger guard: index of last overlapping portal (-1 = none)
+  inPortalIdx: number
 }

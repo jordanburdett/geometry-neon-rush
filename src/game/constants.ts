@@ -46,12 +46,26 @@ export const FormType = {
 } as const
 export type FormType = (typeof FormType)[keyof typeof FormType]
 
+// Form physics constants
+export const SHIP_THRUST = 1400 // px/s² upward acceleration
+export const SHIP_VY_MAX = 600  // px/s clamp magnitude
+export const WAVE_SPEED = 300   // px/s constant vertical speed
+
+// Form accent colors (for trail + portals)
+export const FORM_COLOR: Record<FormType, string> = {
+  CUBE: '#00ffff',
+  SHIP: '#ff2d78',
+  WAVE: '#ffd700',
+  BALL: '#39ff14',
+}
+
 // ObstacleKind
 export const ObstacleKind = {
   SPIKE: 'SPIKE',
   SAW: 'SAW',
   LASER: 'LASER',
   PLATFORM: 'PLATFORM',
+  PORTAL: 'PORTAL',
 } as const
 export type ObstacleKind = (typeof ObstacleKind)[keyof typeof ObstacleKind]
 

@@ -7,6 +7,9 @@ import {
   LEVEL_LENGTH,
   PARTICLE_COUNT,
   PARTICLE_LIFETIME,
+  SHIP_THRUST,
+  SHIP_VY_MAX,
+  WAVE_SPEED,
   GamePhase,
   ObstacleKind,
 } from './constants'
@@ -25,6 +28,14 @@ export function aabbCollision(
   const pBottom = py + ph
 
   return pLeft < ox + ow && pRight > ox && pTop < oy + oh && pBottom > oy
+}
+
+// ── Raw AABB (no mercy shrink) — used for portals ────────────────────────────
+export function aabbRaw(
+  px: number, py: number, pw: number, ph: number,
+  ox: number, oy: number, ow: number, oh: number,
+): boolean {
+  return px < ox + ow && px + pw > ox && py < oy + oh && py + ph > oy
 }
 
 // ── Update CUBE physics ───────────────────────────────────────────────────────
@@ -55,6 +66,91 @@ export function updateCube(player: Player, dt: number): void {
     const snap = Math.round(player.rotation / (Math.PI / 2)) * (Math.PI / 2)
     player.rotation += (snap - player.rotation) * Math.min(dt * 20, 1)
   }
+}
+
+// ── Update SHIP physics ───────────────────────────────────────────────────────
+// holdingThrust: true while Space/tap is held
+export function updateShip(player: Player, dt: number, holdingThrust: boolean): void {
+  if (holdingThrust) {
+    player.vy -= SHIP_THRUST * dt
+  } else {
+    player.vy += GRAVITY * dt
+  }
+
+  // Clamp vy
+  if (player.vy < -SHIP_VY_MAX) player.vy = -SHIP_VY_MAX
+  if (player.vy > SHIP_VY_MAX) player.vy = SHIP_VY_MAX
+
+  // Move vertically
+  player.y += player.vy * dt
+
+  // Advance world position
+  player.worldX += SCROLL_SPEED * dt
+
+  // Ceiling clamp
+  if (player.y < 0) {
+    player.y = 0
+    player.vy = 0
+  }
+
+  // Floor clamp
+  if (player.y >= FLOOR_Y - PLAYER_SIZE) {
+    player.y = FLOOR_Y - PLAYER_SIZE
+    player.vy = 0
+  }
+}
+
+// ── Update WAVE physics ───────────────────────────────────────────────────────
+// No gravity. Taps toggle direction.
+export function updateWave(player: Player, dt: number): void {
+  player.vy = player.waveDir === 'UP' ? -WAVE_SPEED : WAVE_SPEED
+
+  player.y += player.vy * dt
+  player.worldX += SCROLL_SPEED * dt
+
+  // Ceiling clamp
+  if (player.y < 0) {
+    player.y = 0
+    player.waveDir = 'DOWN'
+  }
+
+  // Floor clamp
+  if (player.y >= FLOOR_Y - PLAYER_SIZE) {
+    player.y = FLOOR_Y - PLAYER_SIZE
+    player.waveDir = 'UP'
+  }
+}
+
+// ── Toggle WAVE direction (on tap) ────────────────────────────────────────────
+export function toggleWaveDir(player: Player): void {
+  player.waveDir = player.waveDir === 'UP' ? 'DOWN' : 'UP'
+}
+
+// ── Update BALL physics ───────────────────────────────────────────────────────
+export function updateBall(player: Player, dt: number): void {
+  player.vy += GRAVITY * player.gravSign * dt
+
+  player.y += player.vy * dt
+  player.worldX += SCROLL_SPEED * dt
+
+  // Ceiling snap (inverted gravity)
+  if (player.y < 0) {
+    player.y = 0
+    player.vy = 0
+  }
+
+  // Floor snap (normal gravity)
+  if (player.y >= FLOOR_Y - PLAYER_SIZE) {
+    player.y = FLOOR_Y - PLAYER_SIZE
+    player.vy = 0
+  }
+}
+
+// ── Flip BALL gravity ─────────────────────────────────────────────────────────
+export function flipBallGravity(player: Player): void {
+  player.gravSign = player.gravSign === 1 ? -1 : 1
+  // Give a small velocity push in the new direction for snappier feel
+  player.vy = 0
 }
 
 // ── Jump ─────────────────────────────────────────────────────────────────────
@@ -98,11 +194,28 @@ export function checkObstacleCollisions(
       continue
     }
 
-    // Skip platforms for now (they only block from above — handled in updateCube via floor snap)
+    // Skip platforms and portals (not lethal)
     if (obs.kind === ObstacleKind.PLATFORM) continue
+    if (obs.kind === ObstacleKind.PORTAL) continue
 
     // Skip reached checkpoints
     if (obs.isCheckpoint && obs.reached) continue
+
+    // Lasers: no mercy shrink (instant kill on any contact)
+    if (obs.kind === ObstacleKind.LASER) {
+      if (obs.laserOn !== false) {
+        // Only kill when laser is visually on
+        if (
+          aabbCollision(
+            screenX, player.y, PLAYER_SIZE, PLAYER_SIZE,
+            obsScreenX, obs.y, obs.w, obs.h,
+          )
+        ) {
+          return 'dead'
+        }
+      }
+      continue
+    }
 
     if (
       aabbCollision(
@@ -115,6 +228,34 @@ export function checkObstacleCollisions(
   }
 
   return null
+}
+
+// ── Check portal collisions → return portal index or -1 ──────────────────────
+export function checkPortalCollision(
+  player: Player,
+  obstacles: Obstacle[],
+  cameraX: number,
+): number {
+  const screenX = player.worldX - cameraX
+
+  for (let i = 0; i < obstacles.length; i++) {
+    const obs = obstacles[i]
+    if (obs.kind !== ObstacleKind.PORTAL) continue
+
+    const obsScreenX = obs.worldX - cameraX
+    if (obsScreenX > 1000 || obsScreenX + obs.w < -200) continue
+
+    if (
+      aabbRaw(
+        screenX, player.y, PLAYER_SIZE, PLAYER_SIZE,
+        obsScreenX, obs.y, obs.w, obs.h,
+      )
+    ) {
+      return i
+    }
+  }
+
+  return -1
 }
 
 // ── Spawn death particles ─────────────────────────────────────────────────────
@@ -164,17 +305,41 @@ export function respawnPlayer(state: GameState): void {
   state.player.vy = 0
   state.player.onGround = true
   state.player.rotation = 0
+  state.player.gravSign = 1
+  state.player.waveDir = 'DOWN'
   state.player.trail = []
+  // Reset form to CUBE on respawn from start, keep current form if checkpoint
+  if (!state.checkpointReached) {
+    state.player.form = 'CUBE'
+  }
   state.cameraX = Math.max(0, spawnX - 100)
   state.phase = GamePhase.PLAYING
   state.attempts++
+  state.inPortalIdx = -1
 }
 
-// ── Update saw blade rotation ─────────────────────────────────────────────────
-export function updateObstacles(obstacles: Obstacle[], dt: number): void {
+// ── Update obstacles (saws, moving platforms, laser flicker) ──────────────────
+export function updateObstacles(obstacles: Obstacle[], dt: number, time: number): void {
   for (const obs of obstacles) {
+    // Saw rotation
     if (obs.kind === ObstacleKind.SAW && obs.angle !== undefined) {
       obs.angle += 3 * dt // ~170 deg/s
+    }
+
+    // Moving platform/obstacle: sinusoidal horizontal motion
+    if (obs.moving) {
+      obs.worldX = obs.moving.baseX + obs.moving.amplitude * Math.sin(time * obs.moving.freq)
+    }
+
+    // Laser flicker at 3Hz (toggle every ~0.33s)
+    if (obs.kind === ObstacleKind.LASER) {
+      if (obs.laserOn === undefined) obs.laserOn = true
+      if (obs.laserTimer === undefined) obs.laserTimer = 0
+      obs.laserTimer += dt
+      if (obs.laserTimer >= 1 / 3) {
+        obs.laserTimer -= 1 / 3
+        obs.laserOn = !obs.laserOn
+      }
     }
   }
 }
