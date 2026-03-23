@@ -242,6 +242,8 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
   // Track last chunk id for survival variety
   const lastChunkIdRef = useRef('')
   const lastChunkIdRef2 = useRef('')
+  // DUAL death flash timer (0 = no flash, 0.4 = full flash)
+  const dualDeathFlashRef = useRef(0)
 
   const handleJumpStart = useCallback(() => {
     jumpPressedRef.current = true
@@ -277,6 +279,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         stateRef2.current.player.form = FormType.SHIP
         stateRef2.current.player.y = DUAL_FLOOR_Y
         lastChunkIdRef2.current = ''
+        dualDeathFlashRef.current = 0
       } else {
         stateRef2.current = buildStartState()
       }
@@ -342,6 +345,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
             stateRef2.current.player.form = FormType.SHIP
             stateRef2.current.player.y = DUAL_FLOOR_Y
             lastChunkIdRef2.current = ''
+            dualDeathFlashRef.current = 0
           } else {
             stateRef.current = buildInitialState(GameMode.SURVIVAL, 1)
           }
@@ -433,6 +437,10 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         } else {
           s.shakeX = 0
           s.shakeY = 0
+        }
+        // Decay DUAL death flash
+        if (dualDeathFlashRef.current > 0) {
+          dualDeathFlashRef.current = Math.max(0, dualDeathFlashRef.current - dt)
         }
         return
       }
@@ -591,7 +599,11 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         if (s.phase === GamePhase.DEAD) {
           // Lane 1 just died (or was already dead) — immediately kill lane 2 without
           // running another physics tick for it.
+          const wasAlive = s2.phase !== GamePhase.DEAD
           s2.phase = GamePhase.DEAD
+          if (wasAlive) {
+            dualDeathFlashRef.current = 0.4
+          }
         } else {
           updateDualLane(dt, holdingThrustRef.current)
 
@@ -601,6 +613,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
             spawnDeathParticles(PLAYER_SCREEN_X, s.player.y, s.particles)
             s.shakeTimer = SHAKE_DURATION
             s.phase = GamePhase.DEAD
+            dualDeathFlashRef.current = 0.4
           }
         }
       }
@@ -657,6 +670,11 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         const mk = modeKey(GameMode.DUAL, 1)
         saveBestScore(mk, s2.metres)
         s2.bestScore = getBestScore(mk)
+      }
+
+      // Desync: after 30s, bottom lane cameraX advances faster
+      if (stateRef.current.runTime > 30) {
+        s2.cameraX += 100 * dt
       }
     }
 
@@ -741,6 +759,10 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       if (s.mode === GameMode.DUAL) {
         const s2 = stateRef2.current
 
+        // Compute SYNC gap for readout
+        const syncGap = Math.abs(s2.cameraX - s.cameraX)
+        const syncText = 'SYNC ' + Math.floor(syncGap) + 'px'
+
         // Top strip — CUBE (stateRef)
         ctx.save()
         ctx.beginPath()
@@ -751,6 +773,14 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         renderObstacles(ctx, s.obstacles, s.cameraX, s.time)
         renderPlayer(ctx, s)
         renderParticles(ctx, s.particles)
+        // SYNC readout — top strip
+        ctx.font = '9px monospace'
+        ctx.fillStyle = '#cc44ff'
+        ctx.textAlign = 'right'
+        ctx.shadowColor = '#cc44ff'
+        ctx.shadowBlur = 4
+        ctx.fillText(syncText, CANVAS_W - 8, 16)
+        ctx.shadowBlur = 0
         ctx.restore()
 
         // Bottom strip — SHIP (stateRef2)
@@ -764,6 +794,14 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         renderObstacles(ctx, s2.obstacles, s2.cameraX, s2.time)
         renderPlayer(ctx, s2)
         renderParticles(ctx, s2.particles)
+        // SYNC readout — bottom strip
+        ctx.font = '9px monospace'
+        ctx.fillStyle = '#cc44ff'
+        ctx.textAlign = 'right'
+        ctx.shadowColor = '#cc44ff'
+        ctx.shadowBlur = 4
+        ctx.fillText(syncText, CANVAS_W - 8, 16)
+        ctx.shadowBlur = 0
         ctx.restore()
 
         // Neon divider line at y = DUAL_STRIP_H
@@ -805,6 +843,28 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         ctx.textAlign = 'left'
         ctx.fillText('SHIP', 8, DUAL_STRIP_H + 36)
         ctx.restore()
+
+        // Death flash (before game-over overlay so flash fades then game-over appears)
+        if (dualDeathFlashRef.current > 0) {
+          const flashAlpha = (dualDeathFlashRef.current / 0.4) * 0.5
+          // Top strip: cyan flash
+          ctx.save()
+          ctx.beginPath()
+          ctx.rect(0, 0, CANVAS_W, DUAL_STRIP_H)
+          ctx.clip()
+          ctx.fillStyle = `rgba(0,255,255,${flashAlpha})`
+          ctx.fillRect(0, 0, CANVAS_W, DUAL_STRIP_H)
+          ctx.restore()
+          // Bottom strip: magenta flash
+          ctx.save()
+          ctx.translate(0, DUAL_STRIP_H)
+          ctx.beginPath()
+          ctx.rect(0, 0, CANVAS_W, DUAL_STRIP_H)
+          ctx.clip()
+          ctx.fillStyle = `rgba(255,45,120,${flashAlpha})`
+          ctx.fillRect(0, 0, CANVAS_W, DUAL_STRIP_H)
+          ctx.restore()
+        }
 
         // Game-over overlay spans the full canvas when either lane is dead
         if (s.phase === GamePhase.DEAD) {
