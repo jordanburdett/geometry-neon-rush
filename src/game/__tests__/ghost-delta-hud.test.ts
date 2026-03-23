@@ -603,8 +603,8 @@ describe('DUAL mode: no ghost delta indicator', () => {
     // In DUAL mode, ghostPlaybackRef.current is set to null in startMode()
     // The render path: ghostDeltaOpts = ghostPlaybackRef.current && ... ? {...} : null
     // So when ghostPlayback is null, ghostDeltaOpts is null
-    const ghostPlayback: Array<{ worldX: number; form: string }> | null = null
-    const ghostDeltaOpts = ghostPlayback && ghostPlayback.length > 0
+    const ghostPlayback = null as Array<{ worldX: number; form: string }> | null
+    const ghostDeltaOpts = ghostPlayback && (ghostPlayback as Array<{ worldX: number; form: string }>).length > 0
       ? { delta: 0, flashActive: false, time: 0 }
       : null
     expect(ghostDeltaOpts).toBeNull()
