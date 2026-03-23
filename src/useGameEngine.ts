@@ -309,6 +309,11 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
           lastChunkIdRef.current = ''
           return
         }
+        // Daily solo Menu button: (410, 360, 140, 44) — renderer centers it when Daily
+        if (s.mode === GameMode.DAILY && hitTest(cx, cy, 410, 360, 140, 44)) {
+          stateRef.current = buildStartState()
+          return
+        }
         // Menu button: (500, 360, 140, 44)
         if (hitTest(cx, cy, 500, 360, 140, 44)) {
           stateRef.current = buildStartState()
