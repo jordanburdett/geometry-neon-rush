@@ -206,7 +206,7 @@ export function checkObstacleCollisions(
       if (obs.laserOn !== false) {
         // Only kill when laser is visually on
         if (
-          aabbCollision(
+          aabbRaw(
             screenX, player.y, PLAYER_SIZE, PLAYER_SIZE,
             obsScreenX, obs.y, obs.w, obs.h,
           )
