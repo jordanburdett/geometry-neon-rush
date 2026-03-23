@@ -1,0 +1,64 @@
+// Game dimensions
+export const CANVAS_W = 960
+export const CANVAS_H = 540
+export const FLOOR_Y = 480 // bottom of play area, 60px HUD below
+
+// Physics
+export const GRAVITY = 2000 // px/s²
+export const JUMP_VY = -700 // px/s (negative = up)
+export const SCROLL_SPEED = 300 // px/s
+export const PLAYER_SIZE = 40 // px (cube side length)
+export const PLAYER_SCREEN_X = 100 // fixed screen x position
+
+// Level
+export const LEVEL_LENGTH = 8000 // world x units
+export const CHECKPOINT_X = 4000 // world x of checkpoint flag
+
+// Screen shake
+export const SHAKE_DURATION = 0.2 // seconds
+export const SHAKE_MAGNITUDE = 8 // px
+
+// Death particles
+export const PARTICLE_COUNT = 16
+export const PARTICLE_LIFETIME = 0.6 // seconds
+
+// Trail
+export const TRAIL_LENGTH = 15
+
+// Starfield layers: [speed px/s, count]
+export const STAR_LAYERS: [number, number][] = [
+  [20, 25],
+  [50, 20],
+  [100, 20],
+]
+
+// Floor grid
+export const GRID_LINE_SPACING = 60 // px between horizontal lines
+export const PULSE_BPM = 140
+export const PULSE_HZ = PULSE_BPM / 60 // 2.333... Hz
+
+// FormType — const object pattern (no enum, erasableSyntaxOnly)
+export const FormType = {
+  CUBE: 'CUBE',
+  SHIP: 'SHIP',
+  WAVE: 'WAVE',
+  BALL: 'BALL',
+} as const
+export type FormType = (typeof FormType)[keyof typeof FormType]
+
+// ObstacleKind
+export const ObstacleKind = {
+  SPIKE: 'SPIKE',
+  SAW: 'SAW',
+  LASER: 'LASER',
+  PLATFORM: 'PLATFORM',
+} as const
+export type ObstacleKind = (typeof ObstacleKind)[keyof typeof ObstacleKind]
+
+// Game phase
+export const GamePhase = {
+  PLAYING: 'PLAYING',
+  DEAD: 'DEAD',
+  COMPLETE: 'COMPLETE',
+} as const
+export type GamePhase = (typeof GamePhase)[keyof typeof GamePhase]
