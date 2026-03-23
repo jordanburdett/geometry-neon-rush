@@ -547,6 +547,8 @@ export function renderHUD(ctx: CanvasRenderingContext2D, state: GameState): void
     modeLabel = `CLASSIC L${state.currentLevel}`
   } else if (state.mode === GameMode.SURVIVAL) {
     modeLabel = 'SURVIVAL'
+  } else if (state.mode === GameMode.DUAL) {
+    modeLabel = 'DUAL'
   } else {
     modeLabel = 'DAILY'
   }
@@ -624,6 +626,7 @@ export function renderHUD(ctx: CanvasRenderingContext2D, state: GameState): void
 //   Classic:  x=380, y=246, w=200, h=48
 //   Survival: x=380, y=314, w=200, h=48
 //   Daily:    x=380, y=382, w=200, h=48
+//   Dual:     x=380, y=450, w=200, h=48
 export function renderStartScreen(ctx: CanvasRenderingContext2D, time: number): void {
   const cx = CANVAS_W / 2
   const pulse = Math.sin(time * 2) * 0.5 + 0.5
@@ -656,13 +659,14 @@ export function renderStartScreen(ctx: CanvasRenderingContext2D, time: number): 
   drawButton(ctx, 380, 246, 200, 48, 'CLASSIC', '#00ffff', false, time)
   drawButton(ctx, 380, 314, 200, 48, 'SURVIVAL', '#ff2d78', false, time)
   drawButton(ctx, 380, 382, 200, 48, dailyDone ? 'Daily Done ✓' : 'DAILY', '#ffd700', dailyDone, time)
+  drawButton(ctx, 380, 450, 200, 48, 'DUAL', '#cc44ff', false, time)
 
-  // Footer hint
+  // Footer hint (moved down to avoid overlap with DUAL button)
   ctx.save()
   ctx.textAlign = 'center'
   ctx.font = '12px monospace'
   ctx.fillStyle = 'rgba(255,255,255,0.3)'
-  ctx.fillText('Tap or click a mode to play', cx, 460)
+  ctx.fillText('Tap or click a mode to play', cx, 515)
   ctx.restore()
 }
 

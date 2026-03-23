@@ -68,6 +68,7 @@ function buildStars(): Star[] {
 function modeKey(mode: string, level: number): string {
   if (mode === GameMode.CLASSIC) return `classic-l${level}`
   if (mode === GameMode.SURVIVAL) return 'survival'
+  if (mode === GameMode.DUAL) return 'dual'
   return 'daily'
 }
 
@@ -215,11 +216,13 @@ function calcMetres(worldX: number): number {
 // ── Hook ──────────────────────────────────────────────────────────────────────
 export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | null>): void {
   const stateRef = useRef<GameState>(buildStartState())
+  const stateRef2 = useRef<GameState>(buildStartState())
   const jumpPressedRef = useRef(false)
   const holdingThrustRef = useRef(false)
   const currentLevelRef = useRef(1)
   // Track last chunk id for survival variety
   const lastChunkIdRef = useRef('')
+  const lastChunkIdRef2 = useRef('')
 
   const handleJumpStart = useCallback(() => {
     jumpPressedRef.current = true
@@ -250,6 +253,14 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       stateRef.current = buildInitialState(mode, 1)
       currentLevelRef.current = 1
       lastChunkIdRef.current = ''
+      if (mode === GameMode.DUAL) {
+        stateRef2.current = buildInitialState(GameMode.DUAL, 1)
+        stateRef2.current.player.form = FormType.SHIP
+        stateRef2.current.player.y = FLOOR_Y - PLAYER_SIZE
+        lastChunkIdRef2.current = ''
+      } else {
+        stateRef2.current = buildStartState()
+      }
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -263,6 +274,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       }
       if (e.code === 'Escape') {
         stateRef.current = buildStartState()
+        stateRef2.current = buildStartState()
       }
       // Level select keys 1-5 (Classic only)
       if (e.code === 'Digit1') loadLevel(1)
@@ -291,6 +303,8 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         if (hitTest(cx, cy, 380, 314, 200, 48)) { startMode(GameMode.SURVIVAL); return }
         // Daily button
         if (hitTest(cx, cy, 380, 382, 200, 48)) { startMode(GameMode.DAILY); return }
+        // Dual button
+        if (hitTest(cx, cy, 380, 450, 200, 48)) { startMode(GameMode.DUAL); return }
         return
       }
 
@@ -303,6 +317,11 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
           } else if (s.mode === GameMode.DAILY) {
             // Daily: already consumed the attempt, go to menu
             stateRef.current = buildStartState()
+          } else if (s.mode === GameMode.DUAL) {
+            stateRef.current = buildInitialState(GameMode.DUAL, 1)
+            stateRef2.current = buildInitialState(GameMode.DUAL, 1)
+            stateRef2.current.player.form = FormType.SHIP
+            lastChunkIdRef2.current = ''
           } else {
             stateRef.current = buildInitialState(GameMode.SURVIVAL, 1)
           }
@@ -317,6 +336,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         // Menu button: (500, 360, 140, 44)
         if (hitTest(cx, cy, 500, 360, 140, 44)) {
           stateRef.current = buildStartState()
+          stateRef2.current = buildStartState()
           return
         }
         return
@@ -542,6 +562,77 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         s.checkpointReached = true
         s.checkpointWorldX = 4000
       }
+
+      // ── DUAL: run second state update pass ───────────────────────────────
+      if (s.mode === GameMode.DUAL) {
+        updateDualLane(dt, holdingThrustRef.current)
+
+        // Mutual death: if either lane just died, kill the other too
+        const s2 = stateRef2.current
+        if (s.phase === GamePhase.DEAD && s2.phase !== GamePhase.DEAD) {
+          spawnDeathParticles(PLAYER_SCREEN_X, s2.player.y, s2.particles)
+          s2.shakeTimer = SHAKE_DURATION
+          s2.phase = GamePhase.DEAD
+        } else if (s2.phase === GamePhase.DEAD && s.phase !== GamePhase.DEAD) {
+          spawnDeathParticles(PLAYER_SCREEN_X, s.player.y, s.particles)
+          s.shakeTimer = SHAKE_DURATION
+          s.phase = GamePhase.DEAD
+        }
+      }
+    }
+
+    // ── DUAL: update the second lane (SHIP) ──────────────────────────────────
+    function updateDualLane(dt: number, holdingThrust: boolean): void {
+      const s2 = stateRef2.current
+      if (s2.phase !== GamePhase.PLAYING) return
+
+      s2.time += dt
+
+      // Difficulty scaling (mirrors lane 1)
+      s2.runTime += dt
+      const newDiff = Math.floor(s2.runTime / SURVIVAL_SCALE_INTERVAL)
+      if (newDiff > s2.difficultyLevel) {
+        s2.difficultyLevel = newDiff
+        s2.scrollSpeed = SCROLL_SPEED * Math.pow(1 + SURVIVAL_SCALE_FACTOR, s2.difficultyLevel)
+      }
+      s2.metres = calcMetres(s2.player.worldX)
+
+      // SHIP form: no jump event needed, thrust is continuous
+      updateShipWithSpeed(s2.player, dt, holdingThrust, s2.scrollSpeed)
+
+      updateObstacles(s2.obstacles, dt, s2.time)
+
+      s2.cameraX = Math.max(0, s2.player.worldX - PLAYER_SCREEN_X)
+
+      updateTrail(s2.player, PLAYER_SCREEN_X)
+
+      // Stars are shared from state1 — no separate star update needed
+
+      // Shake
+      if (s2.shakeTimer > 0) {
+        s2.shakeTimer -= dt
+        s2.shakeX = (Math.random() - 0.5) * SHAKE_MAGNITUDE * 2
+        s2.shakeY = (Math.random() - 0.5) * SHAKE_MAGNITUDE * 2
+      } else {
+        s2.shakeX = 0
+        s2.shakeY = 0
+      }
+
+      updateParticles(s2.particles, dt)
+
+      // Advance chunks for lane 2
+      advanceSurvivalChunksLane2(s2)
+
+      // Collision check for lane 2
+      const col2 = checkObstacleCollisions(s2.player, s2.obstacles, s2.cameraX)
+      if (col2 === 'dead') {
+        spawnDeathParticles(PLAYER_SCREEN_X, s2.player.y, s2.particles)
+        s2.shakeTimer = SHAKE_DURATION
+        s2.phase = GamePhase.DEAD
+        const mk = modeKey(GameMode.DUAL, 1)
+        saveBestScore(mk, s2.metres)
+        s2.bestScore = getBestScore(mk)
+      }
     }
 
     // ── Survival chunk advancement ─────────────────────────────────────────
@@ -561,6 +652,28 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         const xOff = chunkStartX(s.nextChunkIndex)
         const tmpl = pickChunk(s.rng, s.difficultyLevel, lastChunkIdRef.current)
         lastChunkIdRef.current = tmpl.id
+        const raw = tmpl.obstacles(xOff, s.rng)
+        const withDifficulty = injectDifficultyObstacles(raw, xOff, s.difficultyLevel, s.rng)
+        s.obstacles.push(...withDifficulty)
+        s.nextChunkIndex++
+      }
+    }
+
+    // ── Survival chunk advancement — lane 2 (DUAL mode) ───────────────────
+    function advanceSurvivalChunksLane2(s: GameState): void {
+      const removeThreshold = s.cameraX - CANVAS_W
+      for (let i = s.obstacles.length - 1; i >= 0; i--) {
+        if (s.obstacles[i].worldX + 100 < removeThreshold) {
+          s.obstacles.splice(i, 1)
+        }
+      }
+
+      const frontierX = s.nextChunkIndex * CANVAS_W
+      const bufferAhead = CANVAS_W * 2
+      if (s.player.worldX + bufferAhead > frontierX) {
+        const xOff = chunkStartX(s.nextChunkIndex)
+        const tmpl = pickChunk(s.rng, s.difficultyLevel, lastChunkIdRef2.current)
+        lastChunkIdRef2.current = tmpl.id
         const raw = tmpl.obstacles(xOff, s.rng)
         const withDifficulty = injectDifficultyObstacles(raw, xOff, s.difficultyLevel, s.rng)
         s.obstacles.push(...withDifficulty)

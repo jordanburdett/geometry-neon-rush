@@ -84,6 +84,7 @@ export const GameMode = {
   CLASSIC: 'CLASSIC',
   SURVIVAL: 'SURVIVAL',
   DAILY: 'DAILY',
+  DUAL: 'DUAL',
 } as const
 export type GameMode = (typeof GameMode)[keyof typeof GameMode]
 
