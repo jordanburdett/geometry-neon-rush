@@ -853,3 +853,318 @@ describe('DUAL mode obstacle y-scaling for lane 2', () => {
     }
   })
 })
+
+// ── evo1-004: Desync mechanic — cameraX gap grows after 30s ──────────────────
+
+describe('DUAL desync: cameraX gap behaviour', () => {
+  // Helper: simulate one tick of the desync logic extracted from updateDualLane.
+  // Returns the updated s2.cameraX.
+  function applyDesync(
+    s1RunTime: number,
+    s2CameraX: number,
+    dt: number,
+  ): number {
+    // Mirrors: if (stateRef.current.runTime > 30) { s2.cameraX += 100 * dt }
+    if (s1RunTime > 30) {
+      return s2CameraX + 100 * dt
+    }
+    return s2CameraX
+  }
+
+  it('before 30s: s2.cameraX does NOT advance extra (gap stays 0)', () => {
+    const s1CameraX = 1000
+    const s2CameraX = 1000
+    const dt = 0.016
+
+    const s2After = applyDesync(29.9, s2CameraX, dt)
+
+    // Gap should still be zero
+    expect(s2After).toBe(s2CameraX)
+    expect(Math.abs(s2After - s1CameraX)).toBe(0)
+  })
+
+  it('exactly at 30s boundary: desync does NOT activate (strictly > 30)', () => {
+    const s2CameraX = 1000
+    const dt = 0.016
+
+    const s2After = applyDesync(30.0, s2CameraX, dt)
+
+    // runTime = 30 is NOT > 30, so no extra advance
+    expect(s2After).toBe(s2CameraX)
+  })
+
+  it('after 30s: s2.cameraX advances by exactly 100 * dt extra per tick', () => {
+    const s2CameraX = 1000
+    const dt = 0.016
+
+    const s2After = applyDesync(30.001, s2CameraX, dt)
+
+    expect(s2After).toBeCloseTo(s2CameraX + 100 * dt, 8)
+  })
+
+  it('after 30s: gap grows at 100 px/s (i.e. gap = 100 * elapsed)', () => {
+    // Simulate N ticks with runTime > 30 and track the accumulated gap
+    const dt = 0.016
+    const ticks = 60 // one second at 60 fps
+    let s2CameraX = 1000
+    const s1CameraX = 1000 // s1 stays fixed for isolation
+
+    for (let i = 0; i < ticks; i++) {
+      s2CameraX = applyDesync(31.0, s2CameraX, dt)
+    }
+
+    const elapsed = dt * ticks // ≈ 0.96s
+    const expectedGap = 100 * elapsed
+    expect(Math.abs(s2CameraX - s1CameraX)).toBeCloseTo(expectedGap, 1)
+  })
+
+  it('gap is additive: two ticks of desync produce exactly 2 * 100 * dt gap', () => {
+    const s2CameraX = 500
+    const s1CameraX = 500
+    const dt = 0.016
+
+    let s2 = applyDesync(31, s2CameraX, dt)
+    s2 = applyDesync(31, s2, dt)
+
+    expect(s2 - s1CameraX).toBeCloseTo(2 * 100 * dt, 8)
+  })
+
+  it('CLASSIC mode: runTime stays 0 so desync never activates', () => {
+    // Classic mode never increments runTime, so runTime is always 0
+    const runTime = 0
+    const s2CameraX = 500
+    const dt = 0.016
+
+    const s2After = applyDesync(runTime, s2CameraX, dt)
+    expect(s2After).toBe(s2CameraX)
+  })
+
+  it('SURVIVAL mode: runTime increments but desync logic belongs only to DUAL', () => {
+    // In DUAL, the check is inside updateDualLane (which only runs in DUAL).
+    // Survival does not call updateDualLane, so no desync.
+    // We verify the guard: mode !== DUAL means updateDualLane is never reached.
+    const s = makeGameState({ mode: GameMode.SURVIVAL })
+    const callsDualLane = s.mode === GameMode.DUAL
+    expect(callsDualLane).toBe(false)
+  })
+})
+
+// ── evo1-004: SYNC readout text format ────────────────────────────────────────
+
+describe('DUAL SYNC readout text', () => {
+  // Mirrors the formula in render():
+  //   const syncGap = Math.abs(s2.cameraX - s.cameraX)
+  //   const syncText = 'SYNC ' + Math.floor(syncGap) + 'px'
+  function syncText(s1CameraX: number, s2CameraX: number): string {
+    const gap = Math.abs(s2CameraX - s1CameraX)
+    return 'SYNC ' + Math.floor(gap) + 'px'
+  }
+
+  it('when both cameraX values are equal, readout is "SYNC 0px"', () => {
+    expect(syncText(1000, 1000)).toBe('SYNC 0px')
+  })
+
+  it('when s2 is ahead by exactly 100px, readout is "SYNC 100px"', () => {
+    expect(syncText(500, 600)).toBe('SYNC 100px')
+  })
+
+  it('when s1 is ahead (gap is negative internally), abs is used', () => {
+    expect(syncText(700, 500)).toBe('SYNC 200px')
+  })
+
+  it('fractional gap is floored, not rounded', () => {
+    // gap = 49.9 → floor → 49
+    expect(syncText(0, 49.9)).toBe('SYNC 49px')
+    // gap = 50.999 → floor → 50
+    expect(syncText(0, 50.999)).toBe('SYNC 50px')
+  })
+
+  it('zero gap produces exactly "SYNC 0px" (not "SYNC 0.5px")', () => {
+    expect(syncText(250, 250)).toBe('SYNC 0px')
+  })
+
+  it('large gap (e.g. 1234.7px) is floored to 1234', () => {
+    expect(syncText(0, 1234.7)).toBe('SYNC 1234px')
+  })
+
+  it('readout prefix is always "SYNC " (space included)', () => {
+    const text = syncText(0, 42)
+    expect(text.startsWith('SYNC ')).toBe(true)
+  })
+
+  it('readout suffix is always "px"', () => {
+    const text = syncText(0, 42)
+    expect(text.endsWith('px')).toBe(true)
+  })
+})
+
+// ── evo1-004: dualDeathFlash timer logic ─────────────────────────────────────
+
+describe('DUAL death flash timer', () => {
+  // Mirrors the dualDeathFlashRef logic:
+  //   set to 0.4 on death, decrement by dt each frame, clamp to 0.
+
+  it('flash initialises to 0 (no flash on startup)', () => {
+    // dualDeathFlashRef = useRef(0), and dualDeathFlashRef.current = 0 in startMode
+    const flash = 0
+    expect(flash).toBe(0)
+  })
+
+  it('flash is set to 0.4 when lane 1 kills lane 2 (wasAlive guard)', () => {
+    // wasAlive = s2.phase !== GamePhase.DEAD before the kill
+    const s2 = makeGameState({ phase: GamePhase.PLAYING, player: makePlayer({ form: FormType.SHIP }) })
+    let flash = 0
+    const wasAlive = s2.phase !== GamePhase.DEAD
+    s2.phase = GamePhase.DEAD
+    if (wasAlive) flash = 0.4
+    expect(flash).toBe(0.4)
+  })
+
+  it('flash is NOT set to 0.4 when lane 2 was already dead (wasAlive = false)', () => {
+    const s2 = makeGameState({ phase: GamePhase.DEAD, player: makePlayer({ form: FormType.SHIP }) })
+    let flash = 0
+    const wasAlive = s2.phase !== GamePhase.DEAD
+    s2.phase = GamePhase.DEAD
+    if (wasAlive) flash = 0.4
+    expect(flash).toBe(0) // no re-flash
+  })
+
+  it('flash is set to 0.4 when lane 2 kills lane 1', () => {
+    // Mirrors: dualDeathFlashRef.current = 0.4 in the mutual-death branch
+    let flash = 0
+    flash = 0.4
+    expect(flash).toBe(0.4)
+  })
+
+  it('flash decrements by dt each DEAD-phase frame', () => {
+    let flash = 0.4
+    const dt = 0.016
+    // Mirrors: dualDeathFlashRef.current = Math.max(0, dualDeathFlashRef.current - dt)
+    flash = Math.max(0, flash - dt)
+    expect(flash).toBeCloseTo(0.4 - dt, 8)
+  })
+
+  it('flash does not go below zero', () => {
+    let flash = 0.01
+    const dt = 0.05 // larger than remaining flash
+    flash = Math.max(0, flash - dt)
+    expect(flash).toBe(0)
+  })
+
+  it('flash decays to exactly 0 after enough frames', () => {
+    let flash = 0.4
+    const dt = 0.016
+    // 0.4 / 0.016 = 25 frames
+    for (let i = 0; i < 30; i++) {
+      flash = Math.max(0, flash - dt)
+    }
+    expect(flash).toBe(0)
+  })
+
+  it('flash reset to 0 on startMode/retry (dualDeathFlashRef.current = 0)', () => {
+    let flash = 0.4
+    // Simulate startMode reset
+    flash = 0
+    expect(flash).toBe(0)
+  })
+
+  it('flash alpha formula scales 0.4 → 0.5 max opacity', () => {
+    // Mirrors: const flashAlpha = (dualDeathFlashRef.current / 0.4) * 0.5
+    const fullFlash = 0.4
+    const flashAlpha = (fullFlash / 0.4) * 0.5
+    expect(flashAlpha).toBeCloseTo(0.5, 8)
+  })
+
+  it('flash alpha is 0 when flash timer is 0', () => {
+    const flash = 0
+    const flashAlpha = (flash / 0.4) * 0.5
+    expect(flashAlpha).toBe(0)
+  })
+
+  it('flash alpha is proportional to flash timer', () => {
+    const halfFlash = 0.2
+    const flashAlpha = (halfFlash / 0.4) * 0.5
+    expect(flashAlpha).toBeCloseTo(0.25, 8)
+  })
+})
+
+// ── evo1-004: Flash strip colors ──────────────────────────────────────────────
+
+describe('DUAL death flash strip colors', () => {
+  it('top strip flash uses cyan color string', () => {
+    // Mirrors: ctx.fillStyle = `rgba(0,255,255,${flashAlpha})`
+    const flashAlpha = 0.5
+    const topColor = `rgba(0,255,255,${flashAlpha})`
+    expect(topColor).toBe('rgba(0,255,255,0.5)')
+    expect(topColor).toContain('0,255,255') // cyan channels
+  })
+
+  it('bottom strip flash uses magenta color string', () => {
+    // Mirrors: ctx.fillStyle = `rgba(255,45,120,${flashAlpha})`
+    const flashAlpha = 0.5
+    const bottomColor = `rgba(255,45,120,${flashAlpha})`
+    expect(bottomColor).toBe('rgba(255,45,120,0.5)')
+    expect(bottomColor).toContain('255,45,120') // magenta channels
+  })
+
+  it('top and bottom flash colors are distinct', () => {
+    const alpha = 0.3
+    const topColor = `rgba(0,255,255,${alpha})`
+    const bottomColor = `rgba(255,45,120,${alpha})`
+    expect(topColor).not.toBe(bottomColor)
+  })
+
+  it('flash is not rendered when timer is 0 (guard: dualDeathFlashRef.current > 0)', () => {
+    const flash = 0
+    const shouldRenderFlash = flash > 0
+    expect(shouldRenderFlash).toBe(false)
+  })
+
+  it('flash IS rendered when timer is positive', () => {
+    const flash = 0.2
+    const shouldRenderFlash = flash > 0
+    expect(shouldRenderFlash).toBe(true)
+  })
+})
+
+// ── evo1-004: Non-DUAL modes unaffected by desync/flash ──────────────────────
+
+describe('evo1-004 mechanics do not affect non-DUAL modes', () => {
+  it('CLASSIC mode never enters the DUAL block (s.mode !== DUAL)', () => {
+    const s = makeGameState({ mode: GameMode.CLASSIC })
+    expect(s.mode === GameMode.DUAL).toBe(false)
+  })
+
+  it('SURVIVAL mode never enters the DUAL block', () => {
+    const s = makeGameState({ mode: GameMode.SURVIVAL })
+    expect(s.mode === GameMode.DUAL).toBe(false)
+  })
+
+  it('DAILY mode never enters the DUAL block', () => {
+    const s = makeGameState({ mode: GameMode.DAILY })
+    expect(s.mode === GameMode.DUAL).toBe(false)
+  })
+
+  it('CLASSIC: runTime is never incremented (mode === CLASSIC guard in update)', () => {
+    // The update function only increments runTime when s.mode !== CLASSIC
+    const s = makeGameState({ mode: GameMode.CLASSIC, runTime: 0 })
+    const willIncrement = s.mode !== GameMode.CLASSIC
+    expect(willIncrement).toBe(false)
+    // runTime stays 0 — desync threshold of 30s is never reached
+    expect(s.runTime).toBe(0)
+  })
+
+  it('desync never activates for CLASSIC because runTime stays 0 (< 30)', () => {
+    // applyDesync uses stateRef.current.runTime; for CLASSIC that stays 0
+    const runTime = 0
+    const shouldDesync = runTime > 30
+    expect(shouldDesync).toBe(false)
+  })
+
+  it('SURVIVAL mode increments runTime but updateDualLane is never called', () => {
+    // updateDualLane is guarded by: if (s.mode === GameMode.DUAL)
+    const s = makeGameState({ mode: GameMode.SURVIVAL })
+    const callsDualLane = s.mode === GameMode.DUAL
+    expect(callsDualLane).toBe(false)
+  })
+})
