@@ -565,18 +565,21 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
 
       // ── DUAL: run second state update pass ───────────────────────────────
       if (s.mode === GameMode.DUAL) {
-        updateDualLane(dt, holdingThrustRef.current)
-
-        // Mutual death: if either lane just died, kill the other too
         const s2 = stateRef2.current
-        if (s.phase === GamePhase.DEAD && s2.phase !== GamePhase.DEAD) {
-          spawnDeathParticles(PLAYER_SCREEN_X, s2.player.y, s2.particles)
-          s2.shakeTimer = SHAKE_DURATION
+        if (s.phase === GamePhase.DEAD) {
+          // Lane 1 just died (or was already dead) — immediately kill lane 2 without
+          // running another physics tick for it.
           s2.phase = GamePhase.DEAD
-        } else if (s2.phase === GamePhase.DEAD && s.phase !== GamePhase.DEAD) {
-          spawnDeathParticles(PLAYER_SCREEN_X, s.player.y, s.particles)
-          s.shakeTimer = SHAKE_DURATION
-          s.phase = GamePhase.DEAD
+        } else {
+          updateDualLane(dt, holdingThrustRef.current)
+
+          // Mutual death: if lane 2 just died, kill lane 1 too
+          // (s.phase is guaranteed non-DEAD here — the outer guard handles the reverse)
+          if (s2.phase === GamePhase.DEAD) {
+            spawnDeathParticles(PLAYER_SCREEN_X, s.player.y, s.particles)
+            s.shakeTimer = SHAKE_DURATION
+            s.phase = GamePhase.DEAD
+          }
         }
       }
     }

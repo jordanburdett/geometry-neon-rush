@@ -754,7 +754,9 @@ export function renderGameOver(ctx: CanvasRenderingContext2D, state: GameState):
     ? `classic-l${state.currentLevel}`
     : state.mode === GameMode.SURVIVAL
       ? 'survival'
-      : 'daily'
+      : state.mode === GameMode.DUAL
+        ? 'dual'
+        : 'daily'
   const best = state.mode === GameMode.CLASSIC
     ? getBestScore(bestKey)
     : state.bestScore
