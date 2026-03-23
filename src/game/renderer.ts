@@ -588,8 +588,22 @@ export function renderParticles(ctx: CanvasRenderingContext2D, particles: Partic
   ctx.restore()
 }
 
+// ── HUD ghost delta options ───────────────────────────────────────────────────
+export interface GhostDeltaOpts {
+  /** metres delta: positive = player is ahead of ghost, negative = behind */
+  delta: number
+  /** true when overtake flash timer is active */
+  flashActive: boolean
+  /** current game time (seconds) — used for flash pulse animation */
+  time: number
+}
+
 // ── HUD ───────────────────────────────────────────────────────────────────────
-export function renderHUD(ctx: CanvasRenderingContext2D, state: GameState): void {
+export function renderHUD(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  ghostDelta?: GhostDeltaOpts | null,
+): void {
   const hudY = FLOOR_Y
   const hudH = CANVAS_H - FLOOR_Y // 60px strip
 
@@ -694,6 +708,35 @@ export function renderHUD(ctx: CanvasRenderingContext2D, state: GameState): void
     ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)'
     ctx.lineWidth = 1
     ctx.strokeRect(barX, barY, barW, barH)
+  }
+
+  // ── Ghost delta indicator (Survival + Classic only, when ghost is loaded) ──
+  if (ghostDelta != null) {
+    const { delta, flashActive, time } = ghostDelta
+    const deltaTxt = delta >= 0
+      ? `+${Math.floor(delta / 100)}m`
+      : `${Math.floor(delta / 100)}m`
+
+    ctx.save()
+    ctx.font = '11px monospace'
+    ctx.textAlign = 'right'
+
+    if (flashActive) {
+      // Pulsing green AHEAD text on overtake
+      const pulse = 0.6 + 0.4 * Math.sin(time * 20)
+      ctx.fillStyle = `rgba(0,255,128,${pulse})`
+      ctx.fillText(`▲ AHEAD ${deltaTxt}`, CANVAS_W - 16, hudY + 48)
+    } else if (delta >= 0) {
+      // Dim green when ahead (flash expired)
+      ctx.fillStyle = 'rgba(0,255,128,0.5)'
+      ctx.fillText(`▲ ${deltaTxt}`, CANVAS_W - 16, hudY + 48)
+    } else {
+      // Red deficit when behind
+      ctx.fillStyle = 'rgba(255,60,60,0.9)'
+      ctx.fillText(`▼ ${deltaTxt}`, CANVAS_W - 16, hudY + 48)
+    }
+
+    ctx.restore()
   }
 }
 

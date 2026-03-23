@@ -254,6 +254,10 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
   // Ghost playback — loaded from localStorage on run start
   const ghostPlaybackRef = useRef<Array<{ worldX: number; form: string }> | null>(null)
   const ghostCursorIdxRef = useRef<number>(0)
+  // Ghost delta HUD state
+  const ghostDeltaRef = useRef<number>(0)         // metres delta (positive = ahead)
+  const ghostOvertakeFlashRef = useRef<number>(0) // flash countdown timer (seconds)
+  const ghostPrevDeltaRef = useRef<number>(0)     // previous frame delta for sign-flip detection
 
   const handleJumpStart = useCallback(() => {
     jumpPressedRef.current = true
@@ -282,6 +286,9 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       const raw = lsGet(`gnr-ghost-classic-l${level}`)
       ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
       ghostCursorIdxRef.current = 0
+      ghostDeltaRef.current = 0
+      ghostOvertakeFlashRef.current = 0
+      ghostPrevDeltaRef.current = 0
     }
 
     // ── Start a mode ──────────────────────────────────────────────────────
@@ -303,6 +310,9 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         ghostPlaybackRef.current = null
       }
       ghostCursorIdxRef.current = 0
+      ghostDeltaRef.current = 0
+      ghostOvertakeFlashRef.current = 0
+      ghostPrevDeltaRef.current = 0
       if (mode === GameMode.DUAL) {
         stateRef2.current = buildInitialState(GameMode.DUAL, 1, DUAL_STRIP_H)
         stateRef2.current.player.form = FormType.SHIP
@@ -392,6 +402,9 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
             ghostPlaybackRef.current = null
           }
           ghostCursorIdxRef.current = 0
+          ghostDeltaRef.current = 0
+          ghostOvertakeFlashRef.current = 0
+          ghostPrevDeltaRef.current = 0
           return
         }
         // Daily solo Menu button: (410, 360, 140, 44) — renderer centers it when Daily
@@ -420,6 +433,9 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
           const raw = lsGet(`gnr-ghost-classic-l${nextLevel}`)
           ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
           ghostCursorIdxRef.current = 0
+          ghostDeltaRef.current = 0
+          ghostOvertakeFlashRef.current = 0
+          ghostPrevDeltaRef.current = 0
           return
         }
         // Menu button: (360, 394, 200, 44)
@@ -606,6 +622,23 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
           ghost[ghostCursorIdxRef.current + 1].worldX <= liveX
         ) {
           ghostCursorIdxRef.current++
+        }
+      }
+
+      // ── Ghost delta HUD (Survival + Classic only; ghost null guards DUAL/DAILY) ──
+      if (ghost && ghost.length > 0) {
+        const ghostWorldX = ghost[ghostCursorIdxRef.current].worldX
+        const prevDelta = ghostPrevDeltaRef.current
+        const liveDelta = s.player.worldX - ghostWorldX // positive = ahead
+        ghostDeltaRef.current = liveDelta
+        // Detect overtake: was behind (≤0), now ahead (>0)
+        if (prevDelta <= 0 && liveDelta > 0) {
+          ghostOvertakeFlashRef.current = 0.8
+        }
+        ghostPrevDeltaRef.current = liveDelta
+        // Decrement flash timer
+        if (ghostOvertakeFlashRef.current > 0) {
+          ghostOvertakeFlashRef.current = Math.max(0, ghostOvertakeFlashRef.current - dt)
         }
       }
 
@@ -966,7 +999,11 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         }
       }
       renderParticles(ctx, s.particles)
-      renderHUD(ctx, s)
+      // Pass ghost delta to HUD when ghost is loaded; null otherwise (DUAL/DAILY have no ghost)
+      const ghostDeltaOpts = ghostPlaybackRef.current && ghostPlaybackRef.current.length > 0
+        ? { delta: ghostDeltaRef.current, flashActive: ghostOvertakeFlashRef.current > 0, time: s.time }
+        : null
+      renderHUD(ctx, s, ghostDeltaOpts)
 
       if (s.phase === GamePhase.DEAD) {
         renderGameOver(ctx, s)
