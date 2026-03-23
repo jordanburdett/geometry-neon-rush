@@ -269,7 +269,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
     // ── Start a mode ──────────────────────────────────────────────────────
     function startMode(mode: typeof GameMode[keyof typeof GameMode]): void {
       if (mode === GameMode.DAILY && isDailyDone()) return // gate: one attempt
-      stateRef.current = buildInitialState(mode, 1)
+      stateRef.current = buildInitialState(mode, 1, mode === GameMode.DUAL ? DUAL_STRIP_H : undefined)
       currentLevelRef.current = 1
       lastChunkIdRef.current = ''
       if (mode === GameMode.DUAL) {
@@ -337,7 +337,7 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
             // Daily: already consumed the attempt, go to menu
             stateRef.current = buildStartState()
           } else if (s.mode === GameMode.DUAL) {
-            stateRef.current = buildInitialState(GameMode.DUAL, 1)
+            stateRef.current = buildInitialState(GameMode.DUAL, 1, DUAL_STRIP_H)
             stateRef2.current = buildInitialState(GameMode.DUAL, 1, DUAL_STRIP_H)
             stateRef2.current.player.form = FormType.SHIP
             stateRef2.current.player.y = DUAL_FLOOR_Y
@@ -678,8 +678,15 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         const tmpl = pickChunk(s.rng, s.difficultyLevel, lastChunkIdRef.current)
         lastChunkIdRef.current = tmpl.id
         const raw = tmpl.obstacles(xOff, s.rng)
-        const withDifficulty = injectDifficultyObstacles(raw, xOff, s.difficultyLevel, s.rng)
-        s.obstacles.push(...withDifficulty)
+        const newChunk = injectDifficultyObstacles(raw, xOff, s.difficultyLevel, s.rng)
+        if (s.mode === GameMode.DUAL) {
+          const scale = DUAL_STRIP_H / FLOOR_Y
+          for (const obs of newChunk) {
+            obs.y = obs.y * scale
+            obs.h = obs.h * scale
+          }
+        }
+        s.obstacles.push(...newChunk)
         s.nextChunkIndex++
       }
     }
