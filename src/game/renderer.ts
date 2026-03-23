@@ -484,6 +484,77 @@ function renderBall(
   ctx.restore()
 }
 
+// ── Ghost Player ──────────────────────────────────────────────────────────────
+
+/**
+ * Draws the player shape at (cx, cy) without fill or stroke state changes.
+ * Used by both renderPlayer internals (via wrappers) and renderGhostPlayer.
+ * @param filled - when true, fill the shape; when false, stroke only (ghost outline)
+ */
+export function drawPlayerShape(
+  ctx: CanvasRenderingContext2D,
+  form: FormType,
+  cx: number,
+  cy: number,
+  filled: boolean,
+): void {
+  ctx.save()
+  ctx.translate(cx + PLAYER_SIZE / 2, cy + PLAYER_SIZE / 2)
+
+  if (form === FormType.CUBE) {
+    if (filled) {
+      ctx.fillRect(-PLAYER_SIZE / 2, -PLAYER_SIZE / 2, PLAYER_SIZE, PLAYER_SIZE)
+    } else {
+      ctx.strokeRect(-PLAYER_SIZE / 2, -PLAYER_SIZE / 2, PLAYER_SIZE, PLAYER_SIZE)
+    }
+  } else if (form === FormType.SHIP) {
+    ctx.beginPath()
+    ctx.moveTo(PLAYER_SIZE / 2, 0)
+    ctx.lineTo(-PLAYER_SIZE / 2, -PLAYER_SIZE / 2 + 4)
+    ctx.lineTo(-PLAYER_SIZE / 4, 0)
+    ctx.lineTo(-PLAYER_SIZE / 2, PLAYER_SIZE / 2 - 4)
+    ctx.closePath()
+    if (filled) { ctx.fill() } else { ctx.stroke() }
+  } else if (form === FormType.WAVE) {
+    ctx.beginPath()
+    ctx.moveTo(PLAYER_SIZE / 2, 0)
+    ctx.lineTo(0, -PLAYER_SIZE / 2)
+    ctx.lineTo(-PLAYER_SIZE / 2, 0)
+    ctx.lineTo(0, PLAYER_SIZE / 2)
+    ctx.closePath()
+    if (filled) { ctx.fill() } else { ctx.stroke() }
+  } else {
+    // BALL
+    ctx.beginPath()
+    ctx.arc(0, 0, PLAYER_SIZE / 2, 0, Math.PI * 2)
+    if (filled) { ctx.fill() } else { ctx.stroke() }
+  }
+
+  ctx.restore()
+}
+
+/**
+ * Renders a semi-transparent ghost player outline at the ghost's worldX position.
+ * Call after renderPlayer so the ghost is drawn on top.
+ */
+export function renderGhostPlayer(
+  ctx: CanvasRenderingContext2D,
+  ghostSample: { worldX: number; form: FormType },
+  cameraX: number,
+  playerY: number,
+): void {
+  const screenX = ghostSample.worldX - cameraX
+  // Frustum cull
+  if (screenX < -60 || screenX > CANVAS_W + 60) return
+
+  ctx.save()
+  ctx.globalAlpha = 0.3
+  ctx.strokeStyle = FORM_COLOR[ghostSample.form]
+  ctx.lineWidth = 1
+  drawPlayerShape(ctx, ghostSample.form, screenX, playerY, false)
+  ctx.restore()
+}
+
 function renderTrail(
   ctx: CanvasRenderingContext2D,
   trail: Array<{ x: number; y: number }>,

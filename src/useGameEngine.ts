@@ -23,6 +23,7 @@ import {
   renderBackground, renderFloor, renderObstacles,
   renderPlayer, renderParticles, renderHUD,
   renderStartScreen, renderGameOver, renderLevelCompleteOverlay,
+  renderGhostPlayer,
 } from './game/renderer'
 import { buildLevel1 } from './game/level1'
 import { buildLevel2 } from './game/level2'
@@ -33,6 +34,7 @@ import { mulberry32, dailySeed } from './game/prng'
 import {
   isDailyDone, markDailyDone, getBestScore, saveBestScore,
   saveGhostSurvivalIfBest, saveGhostClassicIfBest,
+  lsGet,
 } from './game/storage'
 import type { GhostSample } from './game/storage'
 import {
@@ -249,6 +251,9 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
   // Ghost recording — Survival and Classic only
   const ghostSamplesRef = useRef<GhostSample[]>([])
   const ghostLastSampleTimeRef = useRef<number>(0)
+  // Ghost playback — loaded from localStorage on run start
+  const ghostPlaybackRef = useRef<Array<{ worldX: number; form: string }> | null>(null)
+  const ghostCursorIdxRef = useRef<number>(0)
 
   const handleJumpStart = useCallback(() => {
     jumpPressedRef.current = true
@@ -273,6 +278,10 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       stateRef.current = buildInitialState(GameMode.CLASSIC, level)
       ghostSamplesRef.current = []
       ghostLastSampleTimeRef.current = 0
+      // Load stored ghost for Classic level playback
+      const raw = lsGet(`gnr-ghost-classic-l${level}`)
+      ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+      ghostCursorIdxRef.current = 0
     }
 
     // ── Start a mode ──────────────────────────────────────────────────────
@@ -283,6 +292,17 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       lastChunkIdRef.current = ''
       ghostSamplesRef.current = []
       ghostLastSampleTimeRef.current = 0
+      // Load stored ghost for playback
+      if (mode === GameMode.SURVIVAL) {
+        const raw = lsGet('gnr-ghost-survival')
+        ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+      } else if (mode === GameMode.CLASSIC) {
+        const raw = lsGet('gnr-ghost-classic-l1')
+        ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+      } else {
+        ghostPlaybackRef.current = null
+      }
+      ghostCursorIdxRef.current = 0
       if (mode === GameMode.DUAL) {
         stateRef2.current = buildInitialState(GameMode.DUAL, 1, DUAL_STRIP_H)
         stateRef2.current.player.form = FormType.SHIP
@@ -361,6 +381,17 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
           lastChunkIdRef.current = ''
           ghostSamplesRef.current = []
           ghostLastSampleTimeRef.current = 0
+          // Reload ghost for playback on retry
+          if (s.mode === GameMode.SURVIVAL) {
+            const raw = lsGet('gnr-ghost-survival')
+            ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+          } else if (s.mode === GameMode.CLASSIC) {
+            const raw = lsGet(`gnr-ghost-classic-l${s.currentLevel}`)
+            ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+          } else {
+            ghostPlaybackRef.current = null
+          }
+          ghostCursorIdxRef.current = 0
           return
         }
         // Daily solo Menu button: (410, 360, 140, 44) — renderer centers it when Daily
@@ -385,6 +416,10 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
           currentLevelRef.current = nextLevel
           ghostSamplesRef.current = []
           ghostLastSampleTimeRef.current = 0
+          // Load ghost for next level
+          const raw = lsGet(`gnr-ghost-classic-l${nextLevel}`)
+          ghostPlaybackRef.current = raw ? JSON.parse(raw) as Array<{ worldX: number; form: string }> : null
+          ghostCursorIdxRef.current = 0
           return
         }
         // Menu button: (360, 394, 200, 44)
@@ -559,6 +594,18 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
           ghostLastSampleTimeRef.current = sampleClock
           ghostSamplesRef.current.push({ worldX: s.player.worldX, form: s.player.form })
           if (ghostSamplesRef.current.length > 600) ghostSamplesRef.current.shift()
+        }
+      }
+
+      // ── Ghost cursor advancement (worldX-based, not time-based) ───────────
+      const ghost = ghostPlaybackRef.current
+      if (ghost && ghost.length > 0) {
+        const liveX = s.player.worldX
+        while (
+          ghostCursorIdxRef.current < ghost.length - 1 &&
+          ghost[ghostCursorIdxRef.current + 1].worldX <= liveX
+        ) {
+          ghostCursorIdxRef.current++
         }
       }
 
@@ -910,6 +957,14 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
       renderFloor(ctx, s)
       renderObstacles(ctx, s.obstacles, s.cameraX, s.time)
       renderPlayer(ctx, s)
+      // Ghost playback: render after live player so ghost appears on top
+      const ghostPlayback = ghostPlaybackRef.current
+      if (ghostPlayback && ghostPlayback.length > 0 && s.phase === 'PLAYING') {
+        const sample = ghostPlayback[ghostCursorIdxRef.current]
+        if (sample) {
+          renderGhostPlayer(ctx, { worldX: sample.worldX, form: sample.form as FormType }, s.cameraX, s.player.y)
+        }
+      }
       renderParticles(ctx, s.particles)
       renderHUD(ctx, s)
 
