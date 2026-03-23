@@ -107,6 +107,8 @@ describe('respawnPlayer', () => {
         onGround: false,
         form: 'CUBE',
         rotation: 1.5,
+        gravSign: 1,
+        waveDir: 'DOWN' as const,
         trail: [{ x: 100, y: 200 }],
       },
       obstacles: [],
@@ -121,6 +123,8 @@ describe('respawnPlayer', () => {
       time: 10,
       respawnTimer: 0,
       attempts: 2,
+      currentLevel: 1,
+      inPortalIdx: -1,
     }
   }
 
