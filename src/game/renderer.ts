@@ -39,12 +39,17 @@ export function renderBackground(ctx: CanvasRenderingContext2D, state: GameState
 }
 
 // ── Pulsing Grid Floor ────────────────────────────────────────────────────────
-export function renderFloor(ctx: CanvasRenderingContext2D, state: GameState): void {
+// floorOverride: when provided, draw floor line at this y instead of FLOOR_Y.
+// Used for DUAL mode strips (each strip is 270px tall, so floorOverride = DUAL_STRIP_H).
+export function renderFloor(ctx: CanvasRenderingContext2D, state: GameState, floorOverride?: number): void {
   const pulse = Math.sin(state.time * 2 * Math.PI * PULSE_HZ) * 0.5 + 0.5
+  const floorLine = floorOverride ?? FLOOR_Y
 
-  // HUD strip background
-  ctx.fillStyle = '#05050f'
-  ctx.fillRect(0, FLOOR_Y, CANVAS_W, CANVAS_H - FLOOR_Y)
+  // HUD strip background — only render when not using a strip override
+  if (floorOverride === undefined) {
+    ctx.fillStyle = '#05050f'
+    ctx.fillRect(0, FLOOR_Y, CANVAS_W, CANVAS_H - FLOOR_Y)
+  }
 
   // Solid floor line
   ctx.strokeStyle = `rgba(0, 255, 255, ${0.6 + pulse * 0.4})`
@@ -52,15 +57,15 @@ export function renderFloor(ctx: CanvasRenderingContext2D, state: GameState): vo
   ctx.shadowColor = '#00ffff'
   ctx.shadowBlur = 4 + pulse * 12
   ctx.beginPath()
-  ctx.moveTo(0, FLOOR_Y)
-  ctx.lineTo(CANVAS_W, FLOOR_Y)
+  ctx.moveTo(0, floorLine)
+  ctx.lineTo(CANVAS_W, floorLine)
   ctx.stroke()
   ctx.shadowBlur = 0
 
   // Horizontal grid lines (below floor - decorative) with camera scroll
   const scrollOffset = (state.cameraX * 0.3) % GRID_LINE_SPACING
-  for (let y = FLOOR_Y - GRID_LINE_SPACING - scrollOffset; y > 0; y -= GRID_LINE_SPACING) {
-    const alpha = (0.04 + pulse * 0.06) * (1 - (FLOOR_Y - y) / FLOOR_Y)
+  for (let y = floorLine - GRID_LINE_SPACING - scrollOffset; y > 0; y -= GRID_LINE_SPACING) {
+    const alpha = (0.04 + pulse * 0.06) * (1 - (floorLine - y) / floorLine)
     ctx.strokeStyle = `rgba(0, 200, 255, ${alpha})`
     ctx.lineWidth = 1
     ctx.shadowBlur = 0
@@ -78,7 +83,7 @@ export function renderFloor(ctx: CanvasRenderingContext2D, state: GameState): vo
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(x, 0)
-    ctx.lineTo(x, FLOOR_Y)
+    ctx.lineTo(x, floorLine)
     ctx.stroke()
   }
 }

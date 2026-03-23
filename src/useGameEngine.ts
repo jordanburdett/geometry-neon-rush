@@ -730,6 +730,85 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         return
       }
 
+      // ── DUAL mode: two clipped strips ─────────────────────────────────────
+      if (s.mode === GameMode.DUAL) {
+        const s2 = stateRef2.current
+
+        // Top strip — CUBE (stateRef)
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(0, 0, CANVAS_W, DUAL_STRIP_H)
+        ctx.clip()
+        renderBackground(ctx, s)
+        renderFloor(ctx, s, DUAL_STRIP_H)
+        renderObstacles(ctx, s.obstacles, s.cameraX, s.time)
+        renderPlayer(ctx, s)
+        renderParticles(ctx, s.particles)
+        ctx.restore()
+
+        // Bottom strip — SHIP (stateRef2)
+        ctx.save()
+        ctx.translate(0, DUAL_STRIP_H)
+        ctx.beginPath()
+        ctx.rect(0, 0, CANVAS_W, DUAL_STRIP_H)
+        ctx.clip()
+        renderBackground(ctx, s2)
+        renderFloor(ctx, s2, DUAL_STRIP_H)
+        renderObstacles(ctx, s2.obstacles, s2.cameraX, s2.time)
+        renderPlayer(ctx, s2)
+        renderParticles(ctx, s2.particles)
+        ctx.restore()
+
+        // Neon divider line at y = DUAL_STRIP_H
+        ctx.save()
+        ctx.strokeStyle = '#cc44ff'
+        ctx.lineWidth = 3
+        ctx.shadowColor = '#cc44ff'
+        ctx.shadowBlur = 12
+        ctx.beginPath()
+        ctx.moveTo(0, DUAL_STRIP_H)
+        ctx.lineTo(CANVAS_W, DUAL_STRIP_H)
+        ctx.stroke()
+        ctx.shadowBlur = 0
+        ctx.restore()
+
+        // Form-indicator icons
+        // Top-left of top strip: CUBE (cyan)
+        ctx.save()
+        ctx.fillStyle = '#00ffff'
+        ctx.shadowColor = '#00ffff'
+        ctx.shadowBlur = 8
+        ctx.fillRect(8, 8, 16, 16)
+        ctx.shadowBlur = 0
+        ctx.font = '9px monospace'
+        ctx.fillStyle = '#00ffff'
+        ctx.textAlign = 'left'
+        ctx.fillText('CUBE', 8, 36)
+        ctx.restore()
+
+        // Top-left of bottom strip: SHIP (magenta) — canvas pos y = DUAL_STRIP_H + 8 = 278
+        ctx.save()
+        ctx.fillStyle = '#ff2d78'
+        ctx.shadowColor = '#ff2d78'
+        ctx.shadowBlur = 8
+        ctx.fillRect(8, DUAL_STRIP_H + 8, 16, 16)
+        ctx.shadowBlur = 0
+        ctx.font = '9px monospace'
+        ctx.fillStyle = '#ff2d78'
+        ctx.textAlign = 'left'
+        ctx.fillText('SHIP', 8, DUAL_STRIP_H + 36)
+        ctx.restore()
+
+        // Game-over overlay spans the full canvas when either lane is dead
+        if (s.phase === GamePhase.DEAD) {
+          renderGameOver(ctx, s)
+        }
+
+        ctx.restore()
+        return
+      }
+
+      // ── Single-player modes ────────────────────────────────────────────────
       renderBackground(ctx, s)
       renderFloor(ctx, s)
       renderObstacles(ctx, s.obstacles, s.cameraX, s.time)
