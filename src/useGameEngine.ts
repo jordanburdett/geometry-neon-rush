@@ -700,8 +700,13 @@ export function useGameEngine(canvasRef: React.RefObject<HTMLCanvasElement | nul
         const tmpl = pickChunk(s.rng, s.difficultyLevel, lastChunkIdRef2.current)
         lastChunkIdRef2.current = tmpl.id
         const raw = tmpl.obstacles(xOff, s.rng)
-        const withDifficulty = injectDifficultyObstacles(raw, xOff, s.difficultyLevel, s.rng)
-        s.obstacles.push(...withDifficulty)
+        const newChunk = injectDifficultyObstacles(raw, xOff, s.difficultyLevel, s.rng)
+        const scale = DUAL_STRIP_H / FLOOR_Y
+        for (const obs of newChunk) {
+          obs.y = obs.y * scale
+          obs.h = obs.h * scale
+        }
+        s.obstacles.push(...newChunk)
         s.nextChunkIndex++
       }
     }

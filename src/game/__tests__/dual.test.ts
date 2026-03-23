@@ -111,9 +111,9 @@ describe('DUAL state initialization', () => {
 
   it('lane 2 player starts at floor level', () => {
     const s2 = makeGameState({
-      player: makePlayer({ form: FormType.SHIP, y: FLOOR_Y - PLAYER_SIZE }),
+      player: makePlayer({ form: FormType.SHIP, y: DUAL_FLOOR_Y }),
     })
-    expect(s2.player.y).toBe(FLOOR_Y - PLAYER_SIZE)
+    expect(s2.player.y).toBe(DUAL_FLOOR_Y)
   })
 
   it('both lanes start with phase PLAYING', () => {
