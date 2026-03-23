@@ -71,8 +71,23 @@ export type ObstacleKind = (typeof ObstacleKind)[keyof typeof ObstacleKind]
 
 // Game phase
 export const GamePhase = {
+  START: 'START',
   PLAYING: 'PLAYING',
   DEAD: 'DEAD',
   COMPLETE: 'COMPLETE',
+  LEVEL_COMPLETE: 'LEVEL_COMPLETE',
 } as const
 export type GamePhase = (typeof GamePhase)[keyof typeof GamePhase]
+
+// Game mode
+export const GameMode = {
+  CLASSIC: 'CLASSIC',
+  SURVIVAL: 'SURVIVAL',
+  DAILY: 'DAILY',
+} as const
+export type GameMode = (typeof GameMode)[keyof typeof GameMode]
+
+// Survival difficulty scaling
+export const SURVIVAL_SCALE_INTERVAL = 15 // seconds between speed increases
+export const SURVIVAL_SCALE_FACTOR = 0.05 // 5% speed increase per interval
+export const CHUNK_WIDTH = 960 // px width of each procedural chunk

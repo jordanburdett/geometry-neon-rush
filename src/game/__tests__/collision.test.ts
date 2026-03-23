@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { aabbCollision, spawnDeathParticles, respawnPlayer } from '../physics'
-import { FLOOR_Y, PLAYER_SIZE, CHECKPOINT_X, GamePhase } from '../constants'
+import { FLOOR_Y, PLAYER_SIZE, CHECKPOINT_X, GamePhase, GameMode, SCROLL_SPEED } from '../constants'
 import type { GameState, Particle } from '../types'
 
 // ── AABB Collision Tests ──────────────────────────────────────────────────────
@@ -100,6 +100,7 @@ describe('respawnPlayer', () => {
   function makeState(checkpointReached: boolean): GameState {
     return {
       phase: GamePhase.DEAD,
+      mode: GameMode.CLASSIC,
       player: {
         worldX: 5000,
         y: FLOOR_Y - PLAYER_SIZE,
@@ -125,6 +126,13 @@ describe('respawnPlayer', () => {
       attempts: 2,
       currentLevel: 1,
       inPortalIdx: -1,
+      scrollSpeed: SCROLL_SPEED,
+      runTime: 0,
+      difficultyLevel: 0,
+      nextChunkIndex: 0,
+      rng: Math.random,
+      metres: 0,
+      bestScore: 0,
     }
   }
 

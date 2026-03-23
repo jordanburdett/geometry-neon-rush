@@ -10,8 +10,10 @@ import {
   ObstacleKind,
   FormType,
   FORM_COLOR,
+  GameMode,
 } from './constants'
 import type { GameState, Obstacle, Particle } from './types'
+import { isDailyDone, getBestScore } from './storage'
 
 // ── Background + Starfield ────────────────────────────────────────────────────
 export function renderBackground(ctx: CanvasRenderingContext2D, state: GameState): void {
@@ -512,69 +514,332 @@ export function renderParticles(ctx: CanvasRenderingContext2D, particles: Partic
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 export function renderHUD(ctx: CanvasRenderingContext2D, state: GameState): void {
-  const progress = Math.min(state.player.worldX / LEVEL_LENGTH, 1)
-  const pct = Math.floor(progress * 100)
+  const hudY = FLOOR_Y
+  const hudH = CANVAS_H - FLOOR_Y // 60px strip
 
-  const hudY = FLOOR_Y + 8
-  const barX = 20
-  const barW = CANVAS_W - 220
-  const barH = 12
+  // HUD background
+  ctx.fillStyle = '#05050f'
+  ctx.fillRect(0, hudY, CANVAS_W, hudH)
 
-  // Progress bar background
-  ctx.fillStyle = 'rgba(255,255,255,0.1)'
-  ctx.fillRect(barX, hudY + 8, barW, barH)
-
-  // Progress bar fill
-  const fillGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0)
-  fillGrad.addColorStop(0, '#00ffff')
-  fillGrad.addColorStop(0.5, '#8800ff')
-  fillGrad.addColorStop(1, '#ff00aa')
-  ctx.fillStyle = fillGrad
-  ctx.fillRect(barX, hudY + 8, barW * progress, barH)
-
-  // Bar border
-  ctx.strokeStyle = 'rgba(0, 255, 255, 0.4)'
+  // Divider line
+  ctx.strokeStyle = 'rgba(0,255,255,0.3)'
   ctx.lineWidth = 1
-  ctx.strokeRect(barX, hudY + 8, barW, barH)
+  ctx.beginPath()
+  ctx.moveTo(0, hudY)
+  ctx.lineTo(CANVAS_W, hudY)
+  ctx.stroke()
 
-  // Percent text
+  // ── Top-left: form icon (24×24 colored square) ────────────────────────
+  const formColor = FORM_COLOR[state.player.form]
+  const iconX = 16
+  const iconY = hudY + 10
+  ctx.save()
+  ctx.shadowColor = formColor
+  ctx.shadowBlur = 8
+  ctx.fillStyle = formColor
+  ctx.fillRect(iconX, iconY, 24, 24)
+  ctx.shadowBlur = 0
+  ctx.restore()
+
+  // ── Top-center: mode label ────────────────────────────────────────────
+  let modeLabel = ''
+  if (state.mode === GameMode.CLASSIC) {
+    modeLabel = `CLASSIC L${state.currentLevel}`
+  } else if (state.mode === GameMode.SURVIVAL) {
+    modeLabel = 'SURVIVAL'
+  } else {
+    modeLabel = 'DAILY'
+  }
+  ctx.save()
+  ctx.font = 'bold 13px monospace'
+  ctx.fillStyle = 'rgba(255,255,255,0.7)'
+  ctx.textAlign = 'center'
+  ctx.fillText(modeLabel, CANVAS_W / 2, hudY + 22)
+  ctx.restore()
+
+  // ── Top-right: progress (Classic = %) or distance (Survival/Daily = metres) ──
+  let progressText = ''
+  if (state.mode === GameMode.CLASSIC) {
+    const progress = Math.min(state.player.worldX / LEVEL_LENGTH, 1)
+    progressText = `${Math.floor(progress * 100)}%`
+  } else {
+    progressText = `${state.metres}m`
+  }
+  ctx.save()
   ctx.font = 'bold 14px monospace'
   ctx.fillStyle = '#00ffff'
-  ctx.textAlign = 'left'
-  ctx.fillText(`${pct}%`, barX, hudY + 5)
-
-  // Attempt counter
-  ctx.fillStyle = 'rgba(255,255,255,0.5)'
-  ctx.font = '12px monospace'
   ctx.textAlign = 'right'
-  ctx.fillText(`attempt ${state.attempts}`, CANVAS_W - 20, hudY + 20)
-
-  // Current form indicator
-  const formColor = FORM_COLOR[state.player.form]
-  ctx.fillStyle = formColor
-  ctx.font = 'bold 12px monospace'
-  ctx.textAlign = 'right'
-  ctx.shadowColor = formColor
+  ctx.shadowColor = '#00ffff'
   ctx.shadowBlur = 6
-  ctx.fillText(state.player.form, CANVAS_W - 20, hudY + 6)
+  ctx.fillText(progressText, CANVAS_W - 16, hudY + 22)
   ctx.shadowBlur = 0
+  ctx.restore()
 
-  // Level indicator
-  ctx.fillStyle = 'rgba(255,255,255,0.4)'
+  // ── Bottom strip: score / attempt counter ─────────────────────────────
+  ctx.save()
   ctx.font = '11px monospace'
+  ctx.fillStyle = 'rgba(255,255,255,0.4)'
   ctx.textAlign = 'left'
-  ctx.fillText(`LVL ${state.currentLevel}`, barX, hudY + 21)
+  if (state.mode === GameMode.CLASSIC) {
+    ctx.fillText(`attempt ${state.attempts}`, iconX, hudY + 48)
+  } else {
+    ctx.fillText(`score ${state.metres}m`, iconX, hudY + 48)
+  }
 
-  // Checkpoint indicator
-  if (state.checkpointReached) {
+  // Checkpoint indicator (Classic)
+  if (state.checkpointReached && state.mode === GameMode.CLASSIC) {
     ctx.fillStyle = '#00ff88'
     ctx.textAlign = 'center'
-    ctx.font = 'bold 12px monospace'
-    ctx.fillText('✓ checkpoint', CANVAS_W / 2, hudY + 6)
+    ctx.font = 'bold 11px monospace'
+    ctx.fillText('✓ checkpoint', CANVAS_W / 2, hudY + 48)
+  }
+  ctx.restore()
+
+  // ── Classic: progress bar ─────────────────────────────────────────────
+  if (state.mode === GameMode.CLASSIC) {
+    const progress = Math.min(state.player.worldX / LEVEL_LENGTH, 1)
+    const barX = 50
+    const barW = CANVAS_W - 180
+    const barH = 6
+    const barY = hudY + 32
+
+    ctx.fillStyle = 'rgba(255,255,255,0.1)'
+    ctx.fillRect(barX, barY, barW, barH)
+
+    const fillGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0)
+    fillGrad.addColorStop(0, '#00ffff')
+    fillGrad.addColorStop(0.5, '#8800ff')
+    fillGrad.addColorStop(1, '#ff00aa')
+    ctx.fillStyle = fillGrad
+    ctx.fillRect(barX, barY, barW * progress, barH)
+
+    ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(barX, barY, barW, barH)
   }
 }
 
-// ── Level Complete Overlay ────────────────────────────────────────────────────
+// ── Start Screen ──────────────────────────────────────────────────────────────
+// Button layout (matching hit-test regions in useGameEngine.ts):
+//   Classic:  x=380, y=246, w=200, h=48
+//   Survival: x=380, y=314, w=200, h=48
+//   Daily:    x=380, y=382, w=200, h=48
+export function renderStartScreen(ctx: CanvasRenderingContext2D, time: number): void {
+  const cx = CANVAS_W / 2
+  const pulse = Math.sin(time * 2) * 0.5 + 0.5
+
+  ctx.save()
+
+  // Title glow
+  ctx.textAlign = 'center'
+  ctx.font = 'bold 52px monospace'
+  ctx.shadowColor = '#00ffff'
+  ctx.shadowBlur = 30 + pulse * 20
+  ctx.fillStyle = `rgba(0, 255, 255, ${0.9 + pulse * 0.1})`
+  ctx.fillText('GEOMETRY', cx, 110)
+  ctx.fillText('NEON RUSH', cx, 170)
+
+  ctx.shadowBlur = 0
+  ctx.restore()
+
+  // Sub-title
+  ctx.save()
+  ctx.textAlign = 'center'
+  ctx.font = '16px monospace'
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'
+  ctx.fillText('SELECT MODE', cx, 220)
+  ctx.restore()
+
+  const dailyDone = isDailyDone()
+
+  // Buttons
+  drawButton(ctx, 380, 246, 200, 48, 'CLASSIC', '#00ffff', false, time)
+  drawButton(ctx, 380, 314, 200, 48, 'SURVIVAL', '#ff2d78', false, time)
+  drawButton(ctx, 380, 382, 200, 48, dailyDone ? 'Daily Done ✓' : 'DAILY', '#ffd700', dailyDone, time)
+
+  // Footer hint
+  ctx.save()
+  ctx.textAlign = 'center'
+  ctx.font = '12px monospace'
+  ctx.fillStyle = 'rgba(255,255,255,0.3)'
+  ctx.fillText('Tap or click a mode to play', cx, 460)
+  ctx.restore()
+}
+
+function drawButton(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number,
+  label: string,
+  color: string,
+  disabled: boolean,
+  time: number,
+): void {
+  const pulse = Math.sin(time * 3) * 0.5 + 0.5
+  const alpha = disabled ? 0.35 : 1
+
+  ctx.save()
+  ctx.globalAlpha = alpha
+
+  // Border glow
+  if (!disabled) {
+    ctx.shadowColor = color
+    ctx.shadowBlur = 8 + pulse * 8
+  }
+
+  // Background
+  ctx.fillStyle = `rgba(10, 10, 30, 0.85)`
+  ctx.fillRect(x, y, w, h)
+
+  // Border
+  ctx.strokeStyle = color
+  ctx.lineWidth = 2
+  ctx.strokeRect(x, y, w, h)
+
+  // Label
+  ctx.font = 'bold 16px monospace'
+  ctx.fillStyle = disabled ? 'rgba(200,200,200,0.5)' : color
+  ctx.textAlign = 'center'
+  ctx.shadowBlur = disabled ? 0 : 4
+  ctx.fillText(label, x + w / 2, y + h / 2 + 6)
+
+  ctx.shadowBlur = 0
+  ctx.globalAlpha = 1
+  ctx.restore()
+}
+
+// ── Game-Over Overlay ─────────────────────────────────────────────────────────
+// Button layout (matching hit-test regions in useGameEngine.ts):
+//   Retry: x=320, y=360, w=140, h=44
+//   Menu:  x=500, y=360, w=140, h=44
+export function renderGameOver(ctx: CanvasRenderingContext2D, state: GameState): void {
+  // Semi-transparent overlay
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.72)'
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
+
+  const cx = CANVAS_W / 2
+  const pulse = Math.sin(state.time * 3) * 0.5 + 0.5
+
+  // "DEAD" title
+  ctx.save()
+  ctx.textAlign = 'center'
+  ctx.font = 'bold 64px monospace'
+  ctx.shadowColor = '#ff0044'
+  ctx.shadowBlur = 20 + pulse * 20
+  ctx.fillStyle = '#ff2266'
+  ctx.fillText('DEAD', cx, 160)
+  ctx.shadowBlur = 0
+  ctx.restore()
+
+  // Form icon (24×24)
+  const formColor = FORM_COLOR[state.player.form]
+  ctx.save()
+  ctx.shadowColor = formColor
+  ctx.shadowBlur = 10
+  ctx.fillStyle = formColor
+  ctx.fillRect(cx - 12, 185, 24, 24)
+  ctx.shadowBlur = 0
+  ctx.restore()
+
+  // Score
+  const score = state.mode === GameMode.CLASSIC
+    ? `${Math.floor(state.player.worldX / 80)}`
+    : `${state.metres}m`
+
+  // Best score (for Classic: load from localStorage, for survival/daily: use state.bestScore)
+  const bestKey = state.mode === GameMode.CLASSIC
+    ? `classic-l${state.currentLevel}`
+    : state.mode === GameMode.SURVIVAL
+      ? 'survival'
+      : 'daily'
+  const best = state.mode === GameMode.CLASSIC
+    ? getBestScore(bestKey)
+    : state.bestScore
+
+  ctx.save()
+  ctx.textAlign = 'center'
+  ctx.font = 'bold 24px monospace'
+  ctx.fillStyle = '#ffffff'
+  ctx.fillText(`Score: ${score}`, cx, 250)
+
+  ctx.font = '16px monospace'
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'
+  if (state.mode === GameMode.CLASSIC) {
+    ctx.fillText(`Best: level ${best} cleared`, cx, 280)
+  } else {
+    ctx.fillText(`Best: ${best}m`, cx, 280)
+  }
+  ctx.restore()
+
+  // Daily: one-attempt message instead of retry
+  if (state.mode === GameMode.DAILY) {
+    ctx.save()
+    ctx.textAlign = 'center'
+    ctx.font = '14px monospace'
+    ctx.fillStyle = '#ffd700'
+    ctx.fillText('Daily challenge done — come back tomorrow!', cx, 320)
+    ctx.restore()
+
+    // Only show Menu button for Daily
+    drawButton(ctx, 410, 360, 140, 44, 'MENU', '#ffffff', false, state.time)
+    return
+  }
+
+  // Retry and Menu buttons
+  drawButton(ctx, 320, 360, 140, 44, 'RETRY', '#00ffff', false, state.time)
+  drawButton(ctx, 500, 360, 140, 44, 'MENU', '#ffffff', false, state.time)
+}
+
+// ── Level Complete Overlay (Classic) ─────────────────────────────────────────
+// Button layout (matching hit-test regions in useGameEngine.ts):
+//   Next Level: x=360, y=330, w=200, h=44
+//   Menu:       x=360, y=394, w=200, h=44
+export function renderLevelCompleteOverlay(ctx: CanvasRenderingContext2D, state: GameState): void {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.70)'
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
+
+  const cx = CANVAS_W / 2
+  const pulse = Math.sin(state.time * 3) * 0.5 + 0.5
+
+  ctx.save()
+  ctx.textAlign = 'center'
+  ctx.shadowColor = '#00ffff'
+  ctx.shadowBlur = 20 + pulse * 20
+  ctx.font = 'bold 58px monospace'
+  ctx.fillStyle = `rgba(0, 255, 255, ${0.85 + pulse * 0.15})`
+  ctx.fillText('LEVEL COMPLETE!', cx, 200)
+  ctx.shadowBlur = 0
+  ctx.restore()
+
+  // Level number
+  ctx.save()
+  ctx.textAlign = 'center'
+  ctx.font = '20px monospace'
+  ctx.fillStyle = 'rgba(255,255,255,0.7)'
+  ctx.fillText(`Level ${state.currentLevel} cleared`, cx, 248)
+  ctx.restore()
+
+  // Best time / first clear indicator
+  const bestKey = `classic-l${state.currentLevel}`
+  const best = getBestScore(bestKey)
+  if (best > 0) {
+    ctx.save()
+    ctx.textAlign = 'center'
+    ctx.font = '14px monospace'
+    ctx.fillStyle = '#ffd700'
+    ctx.shadowColor = '#ffd700'
+    ctx.shadowBlur = 6
+    ctx.fillText('NEW RECORD! Level cleared!', cx, 280)
+    ctx.shadowBlur = 0
+    ctx.restore()
+  }
+
+  const hasNext = state.currentLevel < 5
+  drawButton(ctx, 360, 330, 200, 44, hasNext ? 'NEXT LEVEL' : 'PLAY AGAIN', '#00ffff', false, state.time)
+  drawButton(ctx, 360, 394, 200, 44, 'MENU', '#ffffff', false, state.time)
+}
+
+// Keep the old renderLevelComplete for compatibility during transition
+// (no longer called by useGameEngine — replaced by renderLevelCompleteOverlay)
 export function renderLevelComplete(ctx: CanvasRenderingContext2D, time: number): void {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)

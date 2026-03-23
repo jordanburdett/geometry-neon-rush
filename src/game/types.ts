@@ -1,4 +1,4 @@
-import type { FormType, ObstacleKind, GamePhase } from './constants'
+import type { FormType, ObstacleKind, GamePhase, GameMode } from './constants'
 
 export interface Player {
   // World position (x is world coordinate)
@@ -55,8 +55,14 @@ export interface Star {
   brightness: number
 }
 
+export interface ChunkTemplate {
+  id: string
+  obstacles: (xOffset: number, rng: () => number) => Obstacle[]
+}
+
 export interface GameState {
   phase: GamePhase
+  mode: GameMode
   player: Player
   obstacles: Obstacle[]
   particles: Particle[]
@@ -76,8 +82,22 @@ export interface GameState {
   respawnTimer: number
   // Attempt count
   attempts: number
-  // Current level (1-5)
+  // Current level (1-5) — Classic only
   currentLevel: number
   // Portal re-trigger guard: index of last overlapping portal (-1 = none)
   inPortalIdx: number
+  // Survival / Daily: current scroll speed (may scale over time)
+  scrollSpeed: number
+  // Survival / Daily: elapsed run time for difficulty scaling
+  runTime: number
+  // Survival / Daily: how many full SURVIVAL_SCALE_INTERVAL windows have passed
+  difficultyLevel: number
+  // Survival / Daily: index of the next chunk to place
+  nextChunkIndex: number
+  // Survival / Daily: RNG function for procedural generation
+  rng: () => number
+  // Survival / Daily: score in metres
+  metres: number
+  // Best score for current mode (loaded from localStorage)
+  bestScore: number
 }
